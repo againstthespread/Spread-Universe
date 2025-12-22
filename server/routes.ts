@@ -13,6 +13,8 @@ import {
   insertMarchmadnessGameSchema,
   updateMarchmadnessGameSchema,
   insertMarchmadnessPickSchema,
+  type FantasyStreamGame,
+  type FantasyStreamPlay,
 } from "@shared/schema";
 import { z } from "zod";
 import session from "express-session";
@@ -665,6 +667,77 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Admin delete game error:", error);
       res.status(500).json({ message: "Failed to delete game" });
+    }
+  });
+
+  // FantasyStream Routes (Mock data - no database needed)
+  const getMockFantasyStreamGames = (): FantasyStreamGame[] => {
+    return [
+      { id: "game1", homeTeam: "KC", awayTeam: "BUF", homeScore: 24, awayScore: 21, quarter: "Q3", timeRemaining: "8:45", status: "in" },
+      { id: "game2", homeTeam: "SF", awayTeam: "DAL", homeScore: 17, awayScore: 14, quarter: "Q2", timeRemaining: "2:30", status: "in" },
+      { id: "game3", homeTeam: "PHI", awayTeam: "NYG", homeScore: 28, awayScore: 10, quarter: "Q4", timeRemaining: "4:15", status: "in" },
+      { id: "game4", homeTeam: "MIA", awayTeam: "NE", homeScore: 0, awayScore: 0, quarter: "PRE", timeRemaining: "1:00 PM", status: "pre" },
+      { id: "game5", homeTeam: "DEN", awayTeam: "LV", homeScore: 31, awayScore: 24, quarter: "FINAL", timeRemaining: "", status: "post" },
+    ];
+  };
+
+  const getMockFantasyStreamPlays = (gameId?: string): FantasyStreamPlay[] => {
+    const allPlays: FantasyStreamPlay[] = [
+      { id: "play1", gameId: "game1", team: "KC", quarter: "Q3", timeRemaining: "8:45", down: 1, distance: 10, yardLine: "KC 25", playType: "pass", description: "Pass complete to Travis Kelce", playerName: "P. Mahomes", receiverName: "T. Kelce", yards: 15, timestamp: new Date().toISOString(), isScoring: false, isLive: true },
+      { id: "play2", gameId: "game1", team: "KC", quarter: "Q3", timeRemaining: "8:12", down: 1, distance: 10, yardLine: "KC 40", playType: "rush", description: "Isiah Pacheco up the middle", playerName: "I. Pacheco", yards: 8, timestamp: new Date(Date.now() - 60000).toISOString(), isScoring: false, isLive: false },
+      { id: "play3", gameId: "game2", team: "SF", quarter: "Q2", timeRemaining: "2:30", down: 3, distance: 7, yardLine: "DAL 35", playType: "pass", description: "Pass incomplete intended for Deebo Samuel", playerName: "B. Purdy", receiverName: "D. Samuel", yards: 0, timestamp: new Date(Date.now() - 120000).toISOString(), isScoring: false, isLive: true },
+      { id: "play4", gameId: "game1", team: "BUF", quarter: "Q2", timeRemaining: "14:22", down: 1, distance: 10, yardLine: "BUF 30", playType: "touchdown", description: "Josh Allen rushes for a TOUCHDOWN!", playerName: "J. Allen", yards: 12, timestamp: new Date(Date.now() - 180000).toISOString(), isScoring: true, isLive: false },
+      { id: "play5", gameId: "game3", team: "PHI", quarter: "Q4", timeRemaining: "4:15", down: 2, distance: 5, yardLine: "NYG 45", playType: "pass", description: "Pass complete to A.J. Brown down the sideline", playerName: "J. Hurts", receiverName: "A.J. Brown", yards: 32, timestamp: new Date(Date.now() - 240000).toISOString(), isScoring: false, isLive: true },
+      { id: "play6", gameId: "game2", team: "DAL", quarter: "Q2", timeRemaining: "5:00", down: 4, distance: 1, yardLine: "SF 15", playType: "fieldgoal", description: "Field goal is GOOD from 32 yards", playerName: "B. Aubrey", yards: 0, timestamp: new Date(Date.now() - 300000).toISOString(), isScoring: true, isLive: false },
+      { id: "play7", gameId: "game3", team: "NYG", quarter: "Q3", timeRemaining: "10:30", down: 2, distance: 8, yardLine: "PHI 42", playType: "turnover", description: "INTERCEPTION by Darius Slay!", playerName: "D. Jones", yards: 0, timestamp: new Date(Date.now() - 360000).toISOString(), isScoring: false, isLive: false },
+      { id: "play8", gameId: "game1", team: "KC", quarter: "Q1", timeRemaining: "5:30", down: 1, distance: 10, yardLine: "BUF 8", playType: "touchdown", description: "Patrick Mahomes to Travis Kelce for the TOUCHDOWN!", playerName: "P. Mahomes", receiverName: "T. Kelce", yards: 8, timestamp: new Date(Date.now() - 420000).toISOString(), isScoring: true, isLive: false },
+    ];
+    
+    if (gameId) {
+      return allPlays.filter(play => play.gameId === gameId);
+    }
+    return allPlays;
+  };
+
+  app.get("/api/fantasystream/games", requireAuth, async (_req, res) => {
+    try {
+      const games = getMockFantasyStreamGames();
+      res.json(games);
+    } catch (error) {
+      console.error("FantasyStream get games error:", error);
+      res.status(500).json({ message: "Failed to get games" });
+    }
+  });
+
+  app.get("/api/fantasystream/games/:id/plays", requireAuth, async (req, res) => {
+    try {
+      const plays = getMockFantasyStreamPlays(req.params.id);
+      res.json(plays);
+    } catch (error) {
+      console.error("FantasyStream get plays error:", error);
+      res.status(500).json({ message: "Failed to get plays" });
+    }
+  });
+
+  app.get("/api/fantasystream/plays", requireAuth, async (req, res) => {
+    try {
+      const { type } = req.query;
+      let plays = getMockFantasyStreamPlays();
+      
+      if (type && type !== "all") {
+        if (type === "scoring") {
+          plays = plays.filter(p => p.isScoring);
+        } else if (type === "touchdowns") {
+          plays = plays.filter(p => p.playType === "touchdown");
+        } else if (type === "big-plays") {
+          plays = plays.filter(p => (p.yards || 0) >= 20);
+        }
+      }
+      
+      res.json(plays);
+    } catch (error) {
+      console.error("FantasyStream get plays error:", error);
+      res.status(500).json({ message: "Failed to get plays" });
     }
   });
 

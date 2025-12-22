@@ -264,6 +264,40 @@ export type MarchmadnessUserStats = {
   }[];
 };
 
+// FantasyStream Schemas (no database tables - stateless display only)
+export const fantasyStreamGameSchema = z.object({
+  id: z.string(),
+  homeTeam: z.string(),
+  awayTeam: z.string(),
+  homeScore: z.number(),
+  awayScore: z.number(),
+  quarter: z.string(),
+  timeRemaining: z.string(),
+  status: z.enum(['pre', 'in', 'post']),
+});
+
+export const fantasyStreamPlaySchema = z.object({
+  id: z.string(),
+  gameId: z.string(),
+  team: z.string(),
+  quarter: z.string(),
+  timeRemaining: z.string(),
+  down: z.number().optional(),
+  distance: z.number().optional(),
+  yardLine: z.string().optional(),
+  playType: z.enum(['pass', 'rush', 'punt', 'kick', 'turnover', 'touchdown', 'fieldgoal', 'safety']),
+  description: z.string(),
+  playerName: z.string().optional(),
+  receiverName: z.string().optional(),
+  yards: z.number().optional(),
+  timestamp: z.string(),
+  isScoring: z.boolean().default(false),
+  isLive: z.boolean().default(false),
+});
+
+export type FantasyStreamGame = z.infer<typeof fantasyStreamGameSchema>;
+export type FantasyStreamPlay = z.infer<typeof fantasyStreamPlaySchema>;
+
 export const platforms: Platform[] = [
   {
     id: "crowdline",
