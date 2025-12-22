@@ -51,7 +51,6 @@ function Router() {
       <Route path="/postseason/leaderboard" component={PostseasonLeaderboard} />
       <Route path="/postseason/history" component={PostseasonPicksHistory} />
       <Route path="/postseason/admin" component={PostseasonAdmin} />
-      <Route path="/postseasonats" component={PostseasonDashboard} />
       <Route path="/footballweather" component={FootballWeatherDashboard} />
       <Route component={NotFound} />
     </Switch>

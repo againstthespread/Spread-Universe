@@ -57,7 +57,7 @@ const platformContent: Record<string, { features: string[]; stats: { label: stri
       { label: "Trade Grades", value: "2.1M" },
     ],
   },
-  gambingleague: {
+  "gambling-league": {
     features: [
       "Create private betting leagues",
       "Weekly competitions",
@@ -70,7 +70,7 @@ const platformContent: Record<string, { features: string[]; stats: { label: stri
       { label: "Bets Placed", value: "1.2M" },
     ],
   },
-  postseasonats: {
+  postseason: {
     features: [
       "Playoff bracket predictions",
       "Series outcome probabilities",
