@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { loginSchema, registerSchema, requestResetSchema, verifyCodeSchema } from "@shared/schema";
+import { loginSchema, registerSchema, requestResetSchema, verifyCodeSchema, insertCrowdlineGameSchema, insertCrowdlinePredictionSchema, updateCrowdlineGameResultSchema } from "@shared/schema";
 import { z } from "zod";
 import session from "express-session";
 import MemoryStore from "memorystore";
@@ -278,6 +278,122 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Reset password error:", error);
       res.status(500).json({ message: "Failed to reset password" });
+    }
+  });
+
+  // CrowdLine Routes
+  app.get("/api/crowdline/games", requireAuth, async (req, res) => {
+    try {
+      const games = await storage.crowdline_getGamesWithStats(req.session.userId);
+      res.json(games);
+    } catch (error) {
+      console.error("Get games error:", error);
+      res.status(500).json({ message: "Failed to get games" });
+    }
+  });
+
+  app.post("/api/crowdline/predictions", requireAuth, async (req, res) => {
+    try {
+      const result = insertCrowdlinePredictionSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ message: result.error.errors[0].message });
+      }
+
+      const { gameId, homeScore, awayScore } = result.data;
+      const userId = req.session.userId!;
+
+      const game = await storage.crowdline_getGameById(gameId);
+      if (!game) {
+        return res.status(404).json({ message: "Game not found" });
+      }
+
+      if (new Date() >= new Date(game.gameDate)) {
+        return res.status(400).json({ message: "Game has already started" });
+      }
+
+      const existingPrediction = await storage.crowdline_getPrediction(userId, gameId);
+      if (existingPrediction) {
+        const updated = await storage.crowdline_updatePrediction(userId, gameId, homeScore, awayScore);
+        return res.json(updated);
+      }
+
+      const prediction = await storage.crowdline_createPrediction({ visitorId: userId, gameId, homeScore, awayScore });
+      res.json(prediction);
+    } catch (error) {
+      console.error("Submit prediction error:", error);
+      res.status(500).json({ message: "Failed to submit prediction" });
+    }
+  });
+
+  app.get("/api/crowdline/leaderboard", requireAuth, async (req, res) => {
+    try {
+      const leaderboard = await storage.crowdline_getLeaderboard();
+      res.json(leaderboard);
+    } catch (error) {
+      console.error("Get leaderboard error:", error);
+      res.status(500).json({ message: "Failed to get leaderboard" });
+    }
+  });
+
+  // CrowdLine Admin Routes
+  const requireCrowdlineAdmin = async (req: Request, res: Response, next: NextFunction) => {
+    if (!req.session.userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const user = await storage.getUser(req.session.userId);
+    if (!user || user.email !== "admin@crowdline.com") {
+      return res.status(403).json({ message: "Forbidden - Admin access required" });
+    }
+    next();
+  };
+
+  app.get("/api/crowdline/admin/games", requireCrowdlineAdmin, async (req, res) => {
+    try {
+      const games = await storage.crowdline_getAllGames();
+      res.json(games);
+    } catch (error) {
+      console.error("Admin get games error:", error);
+      res.status(500).json({ message: "Failed to get games" });
+    }
+  });
+
+  app.post("/api/crowdline/admin/games", requireCrowdlineAdmin, async (req, res) => {
+    try {
+      const result = insertCrowdlineGameSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ message: result.error.errors[0].message });
+      }
+
+      const game = await storage.crowdline_createGame(result.data);
+      res.json(game);
+    } catch (error) {
+      console.error("Admin create game error:", error);
+      res.status(500).json({ message: "Failed to create game" });
+    }
+  });
+
+  app.delete("/api/crowdline/admin/games/:id", requireCrowdlineAdmin, async (req, res) => {
+    try {
+      await storage.crowdline_deleteGame(req.params.id);
+      res.json({ message: "Game deleted" });
+    } catch (error) {
+      console.error("Admin delete game error:", error);
+      res.status(500).json({ message: "Failed to delete game" });
+    }
+  });
+
+  app.patch("/api/crowdline/admin/games/:id/result", requireCrowdlineAdmin, async (req, res) => {
+    try {
+      const result = updateCrowdlineGameResultSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ message: result.error.errors[0].message });
+      }
+
+      const game = await storage.crowdline_updateGameResult(req.params.id, result.data);
+      res.json(game);
+    } catch (error) {
+      console.error("Admin update result error:", error);
+      res.status(500).json({ message: "Failed to update result" });
     }
   });
 

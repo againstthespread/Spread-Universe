@@ -14,6 +14,9 @@ import ForgotPassword from "@/pages/forgot-password";
 import Dashboard from "@/pages/dashboard";
 import Account from "@/pages/account";
 import PlatformPage from "@/pages/platform";
+import CrowdlineDashboard from "@/pages/crowdline/index";
+import CrowdlineLeaderboard from "@/pages/crowdline/leaderboard";
+import CrowdlineAdmin from "@/pages/crowdline/admin";
 
 function Router() {
   return (
@@ -24,7 +27,9 @@ function Router() {
       <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/account" component={Account} />
-      <Route path="/crowdline" component={PlatformPage} />
+      <Route path="/crowdline" component={CrowdlineDashboard} />
+      <Route path="/crowdline/leaderboard" component={CrowdlineLeaderboard} />
+      <Route path="/crowdline/admin" component={CrowdlineAdmin} />
       <Route path="/marchmadness" component={PlatformPage} />
       <Route path="/fantasystream" component={PlatformPage} />
       <Route path="/gambingleague" component={PlatformPage} />

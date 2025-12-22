@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, boolean, integer, decimal, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -17,6 +17,30 @@ export const passwordResetCodes = pgTable("password_reset_codes", {
   expiresAt: timestamp("expires_at").notNull(),
   used: boolean("used").default(false),
 });
+
+export const crowdlineGames = pgTable("crowdline_games", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  homeTeam: text("home_team").notNull(),
+  awayTeam: text("away_team").notNull(),
+  gameDate: timestamp("game_date").notNull(),
+  status: text("status").notNull().default("scheduled"),
+  actualHomeScore: integer("actual_home_score"),
+  actualAwayScore: integer("actual_away_score"),
+  vegasSpread: decimal("vegas_spread", { precision: 4, scale: 1 }),
+  vegasOverUnder: decimal("vegas_over_under", { precision: 4, scale: 1 }),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const crowdlinePredictions = pgTable("crowdline_predictions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  visitorId: varchar("visitor_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  gameId: varchar("game_id").notNull().references(() => crowdlineGames.id, { onDelete: "cascade" }),
+  homeScore: integer("home_score").notNull(),
+  awayScore: integer("away_score").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  visitorGameUnique: unique().on(table.visitorId, table.gameId),
+}));
 
 export const insertUserSchema = createInsertSchema(users).pick({
   email: true,
@@ -58,9 +82,49 @@ export const resetPasswordSchema = z.object({
   path: ["confirmPassword"],
 });
 
+export const insertCrowdlineGameSchema = createInsertSchema(crowdlineGames).omit({
+  id: true,
+  createdAt: true,
+  actualHomeScore: true,
+  actualAwayScore: true,
+  vegasSpread: true,
+  vegasOverUnder: true,
+}).extend({
+  gameDate: z.string().or(z.date()).transform((val) => new Date(val)),
+});
+
+export const updateCrowdlineGameResultSchema = z.object({
+  actualHomeScore: z.number().int().min(0),
+  actualAwayScore: z.number().int().min(0),
+  vegasSpread: z.number().optional(),
+  vegasOverUnder: z.number().optional(),
+  status: z.string().optional(),
+});
+
+export const insertCrowdlinePredictionSchema = createInsertSchema(crowdlinePredictions).omit({
+  id: true,
+  createdAt: true,
+  visitorId: true,
+}).extend({
+  homeScore: z.number().int().min(0),
+  awayScore: z.number().int().min(0),
+});
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type PasswordResetCode = typeof passwordResetCodes.$inferSelect;
+
+export type CrowdlineGame = typeof crowdlineGames.$inferSelect;
+export type InsertCrowdlineGame = z.infer<typeof insertCrowdlineGameSchema>;
+export type CrowdlinePrediction = typeof crowdlinePredictions.$inferSelect;
+export type InsertCrowdlinePrediction = z.infer<typeof insertCrowdlinePredictionSchema>;
+
+export type CrowdlineGameWithStats = CrowdlineGame & {
+  userPrediction?: { homeScore: number; awayScore: number } | null;
+  totalPredictions: number;
+  avgHomeScore: number;
+  avgAwayScore: number;
+};
 
 export type Platform = {
   id: string;
