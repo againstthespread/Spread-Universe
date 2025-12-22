@@ -27,6 +27,7 @@ import PostseasonDashboard from "@/pages/postseason/index";
 import PostseasonLeaderboard from "@/pages/postseason/leaderboard";
 import PostseasonPicksHistory from "@/pages/postseason/picks-history";
 import PostseasonAdmin from "@/pages/postseason/admin";
+import FootballWeatherDashboard from "@/pages/football-weather/index";
 
 function Router() {
   return (
@@ -51,7 +52,7 @@ function Router() {
       <Route path="/postseason/history" component={PostseasonPicksHistory} />
       <Route path="/postseason/admin" component={PostseasonAdmin} />
       <Route path="/postseasonats" component={PostseasonDashboard} />
-      <Route path="/footballweather" component={PlatformPage} />
+      <Route path="/footballweather" component={FootballWeatherDashboard} />
       <Route component={NotFound} />
     </Switch>
   );

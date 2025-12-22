@@ -1196,5 +1196,101 @@ export async function registerRoutes(
     }
   });
 
+  // Football-Weather Routes (display-only, uses mock data)
+  app.get("/api/football-weather/games", requireAuth, async (req, res) => {
+    try {
+      const { NFL_STADIUMS, TEAM_STADIUMS } = await import("@shared/schema");
+      
+      const mockTeams = [
+        { id: "1", name: "Chiefs", abbreviation: "KC", displayName: "Kansas City Chiefs", shortDisplayName: "Chiefs", logo: "https://a.espncdn.com/i/teamlogos/nfl/500/kc.png" },
+        { id: "2", name: "Raiders", abbreviation: "LV", displayName: "Las Vegas Raiders", shortDisplayName: "Raiders", logo: "https://a.espncdn.com/i/teamlogos/nfl/500/lv.png" },
+        { id: "3", name: "Bills", abbreviation: "BUF", displayName: "Buffalo Bills", shortDisplayName: "Bills", logo: "https://a.espncdn.com/i/teamlogos/nfl/500/buf.png" },
+        { id: "4", name: "Dolphins", abbreviation: "MIA", displayName: "Miami Dolphins", shortDisplayName: "Dolphins", logo: "https://a.espncdn.com/i/teamlogos/nfl/500/mia.png" },
+        { id: "5", name: "Cowboys", abbreviation: "DAL", displayName: "Dallas Cowboys", shortDisplayName: "Cowboys", logo: "https://a.espncdn.com/i/teamlogos/nfl/500/dal.png" },
+        { id: "6", name: "Eagles", abbreviation: "PHI", displayName: "Philadelphia Eagles", shortDisplayName: "Eagles", logo: "https://a.espncdn.com/i/teamlogos/nfl/500/phi.png" },
+        { id: "7", name: "Packers", abbreviation: "GB", displayName: "Green Bay Packers", shortDisplayName: "Packers", logo: "https://a.espncdn.com/i/teamlogos/nfl/500/gb.png" },
+        { id: "8", name: "Bears", abbreviation: "CHI", displayName: "Chicago Bears", shortDisplayName: "Bears", logo: "https://a.espncdn.com/i/teamlogos/nfl/500/chi.png" },
+        { id: "9", name: "Lions", abbreviation: "DET", displayName: "Detroit Lions", shortDisplayName: "Lions", logo: "https://a.espncdn.com/i/teamlogos/nfl/500/det.png" },
+        { id: "10", name: "49ers", abbreviation: "SF", displayName: "San Francisco 49ers", shortDisplayName: "49ers", logo: "https://a.espncdn.com/i/teamlogos/nfl/500/sf.png" },
+        { id: "11", name: "Ravens", abbreviation: "BAL", displayName: "Baltimore Ravens", shortDisplayName: "Ravens", logo: "https://a.espncdn.com/i/teamlogos/nfl/500/bal.png" },
+        { id: "12", name: "Steelers", abbreviation: "PIT", displayName: "Pittsburgh Steelers", shortDisplayName: "Steelers", logo: "https://a.espncdn.com/i/teamlogos/nfl/500/pit.png" },
+        { id: "13", name: "Bengals", abbreviation: "CIN", displayName: "Cincinnati Bengals", shortDisplayName: "Bengals", logo: "https://a.espncdn.com/i/teamlogos/nfl/500/cin.png" },
+        { id: "14", name: "Browns", abbreviation: "CLE", displayName: "Cleveland Browns", shortDisplayName: "Browns", logo: "https://a.espncdn.com/i/teamlogos/nfl/500/cle.png" },
+        { id: "15", name: "Texans", abbreviation: "HOU", displayName: "Houston Texans", shortDisplayName: "Texans", logo: "https://a.espncdn.com/i/teamlogos/nfl/500/hou.png" },
+        { id: "16", name: "Colts", abbreviation: "IND", displayName: "Indianapolis Colts", shortDisplayName: "Colts", logo: "https://a.espncdn.com/i/teamlogos/nfl/500/ind.png" },
+      ];
+
+      const getStadiumForTeam = (abbrev: string) => {
+        const stadiumName = TEAM_STADIUMS[abbrev];
+        return stadiumName ? NFL_STADIUMS[stadiumName] : NFL_STADIUMS["MetLife Stadium"];
+      };
+
+      const getFantasyImplication = (weather: any, isDome: boolean): "ideal_passing" | "rb_weather" | "dome_game" | "neutral" => {
+        if (isDome) return "dome_game";
+        if (!weather) return "neutral";
+        if (weather.windSpeed > 15 || weather.precipitation > 30 || weather.temp < 35) return "rb_weather";
+        if (weather.temp >= 55 && weather.temp <= 80 && weather.windSpeed < 10 && weather.precipitation < 10) return "ideal_passing";
+        return "neutral";
+      };
+
+      const weatherConditions = [
+        { temp: 72, feelsLike: 74, humidity: 45, windSpeed: 5, description: "Sunny", icon: "01d", precipitation: 0 },
+        { temp: 45, feelsLike: 40, humidity: 65, windSpeed: 18, windGust: 25, description: "Windy", icon: "50d", precipitation: 10 },
+        { temp: 32, feelsLike: 22, humidity: 80, windSpeed: 12, description: "Snow", icon: "13d", precipitation: 60, snow: 2 },
+        { temp: 58, feelsLike: 56, humidity: 70, windSpeed: 8, description: "Cloudy", icon: "04d", precipitation: 20 },
+        { temp: 48, feelsLike: 44, humidity: 85, windSpeed: 10, description: "Rain", icon: "10d", precipitation: 80, rain: 0.5 },
+        { temp: 65, feelsLike: 67, humidity: 50, windSpeed: 7, description: "Partly Cloudy", icon: "02d", precipitation: 5 },
+        { temp: 28, feelsLike: 18, humidity: 75, windSpeed: 20, windGust: 30, description: "Blizzard", icon: "13d", precipitation: 90, snow: 4 },
+        { temp: 78, feelsLike: 82, humidity: 40, windSpeed: 4, description: "Clear", icon: "01d", precipitation: 0 },
+      ];
+
+      const games: FootballWeatherGame[] = [];
+      const matchups = [
+        { homeIdx: 0, awayIdx: 1 },
+        { homeIdx: 2, awayIdx: 3 },
+        { homeIdx: 4, awayIdx: 5 },
+        { homeIdx: 6, awayIdx: 7 },
+        { homeIdx: 8, awayIdx: 9 },
+        { homeIdx: 10, awayIdx: 11 },
+        { homeIdx: 12, awayIdx: 13 },
+        { homeIdx: 14, awayIdx: 15 },
+      ];
+
+      const baseDate = new Date();
+      baseDate.setDate(baseDate.getDate() + ((7 - baseDate.getDay()) % 7 || 7));
+      baseDate.setHours(13, 0, 0, 0);
+
+      matchups.forEach((matchup, index) => {
+        const homeTeam = mockTeams[matchup.homeIdx];
+        const awayTeam = mockTeams[matchup.awayIdx];
+        const stadium = getStadiumForTeam(homeTeam.abbreviation);
+        const weather = stadium.isDome ? null : weatherConditions[index % weatherConditions.length];
+        const gameTime = new Date(baseDate);
+        gameTime.setHours(13 + Math.floor(index / 2) * 4);
+
+        games.push({
+          id: `game-${index + 1}`,
+          homeTeam,
+          awayTeam,
+          stadium,
+          gameTime: gameTime.toISOString(),
+          weather,
+          fantasyImplication: getFantasyImplication(weather, stadium.isDome),
+        });
+      });
+
+      const response: FootballWeatherGamesResponse = {
+        games,
+        lastUpdated: new Date().toISOString(),
+        weekNumber: 17,
+      };
+
+      res.json(response);
+    } catch (error) {
+      console.error("Football-Weather get games error:", error);
+      res.status(500).json({ message: "Failed to get games" });
+    }
+  });
+
   return httpServer;
 }
