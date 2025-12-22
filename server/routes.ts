@@ -13,6 +13,10 @@ import {
   insertMarchmadnessGameSchema,
   updateMarchmadnessGameSchema,
   insertMarchmadnessPickSchema,
+  insertGamblingLeagueSchema,
+  insertGamblingLeagueGameSchema,
+  updateGamblingLeagueGameResultSchema,
+  insertGamblingLeaguePickSchema,
   type FantasyStreamGame,
   type FantasyStreamPlay,
 } from "@shared/schema";
@@ -738,6 +742,272 @@ export async function registerRoutes(
     } catch (error) {
       console.error("FantasyStream get plays error:", error);
       res.status(500).json({ message: "Failed to get plays" });
+    }
+  });
+
+  // ========================
+  // Gambling League Routes
+  // ========================
+
+  app.get("/api/gambling-league/leagues", async (_req, res) => {
+    try {
+      const leagues = await storage.gl_getLeagues();
+      const openLeagues = leagues.filter(l => l.status === 'open');
+      res.json(openLeagues);
+    } catch (error) {
+      console.error("GL get leagues error:", error);
+      res.status(500).json({ message: "Failed to get leagues" });
+    }
+  });
+
+  app.post("/api/gambling-league/leagues", requireAuth, async (req, res) => {
+    try {
+      const result = insertGamblingLeagueSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ message: result.error.errors[0].message });
+      }
+      const league = await storage.gl_createLeague(result.data, req.session.userId!);
+      res.json(league);
+    } catch (error) {
+      console.error("GL create league error:", error);
+      res.status(500).json({ message: "Failed to create league" });
+    }
+  });
+
+  app.get("/api/gambling-league/leagues/:id", requireAuth, async (req, res) => {
+    try {
+      const league = await storage.gl_getLeague(req.params.id);
+      if (!league) {
+        return res.status(404).json({ message: "League not found" });
+      }
+      const members = await storage.gl_getLeagueMembers(league.id);
+      res.json({ ...league, members });
+    } catch (error) {
+      console.error("GL get league error:", error);
+      res.status(500).json({ message: "Failed to get league" });
+    }
+  });
+
+  app.post("/api/gambling-league/leagues/:id/join", requireAuth, async (req, res) => {
+    try {
+      const league = await storage.gl_getLeague(req.params.id);
+      if (!league) {
+        return res.status(404).json({ message: "League not found" });
+      }
+      if (league.status !== 'open') {
+        return res.status(400).json({ message: "League is not accepting new members" });
+      }
+      const members = await storage.gl_getLeagueMembers(league.id);
+      if (members.some(m => m.userId === req.session.userId)) {
+        return res.status(400).json({ message: "Already a member of this league" });
+      }
+      if (members.length >= league.capacity) {
+        return res.status(400).json({ message: "League is full" });
+      }
+      const member = await storage.gl_joinLeague(league.id, req.session.userId!);
+      res.json(member);
+    } catch (error) {
+      console.error("GL join league error:", error);
+      res.status(500).json({ message: "Failed to join league" });
+    }
+  });
+
+  app.get("/api/gambling-league/leagues/:id/standings", requireAuth, async (req, res) => {
+    try {
+      const standings = await storage.gl_getLeagueStandings(req.params.id);
+      res.json(standings);
+    } catch (error) {
+      console.error("GL get standings error:", error);
+      res.status(500).json({ message: "Failed to get standings" });
+    }
+  });
+
+  app.get("/api/gambling-league/leagues/:id/matchups", requireAuth, async (req, res) => {
+    try {
+      const { week } = req.query;
+      let matchups;
+      if (week) {
+        matchups = await storage.gl_getMatchupsByLeagueWeek(req.params.id, parseInt(week as string));
+      } else {
+        matchups = await storage.gl_getMatchups(req.params.id);
+      }
+      res.json(matchups);
+    } catch (error) {
+      console.error("GL get matchups error:", error);
+      res.status(500).json({ message: "Failed to get matchups" });
+    }
+  });
+
+  app.get("/api/gambling-league/games", async (req, res) => {
+    try {
+      const { week } = req.query;
+      let games;
+      if (week) {
+        games = await storage.gl_getGamesByWeek(parseInt(week as string));
+      } else {
+        games = await storage.gl_getGames();
+      }
+      res.json(games);
+    } catch (error) {
+      console.error("GL get games error:", error);
+      res.status(500).json({ message: "Failed to get games" });
+    }
+  });
+
+  app.get("/api/gambling-league/weeks/:week/games/:leagueId", requireAuth, async (req, res) => {
+    try {
+      const games = await storage.gl_getGamesWithPicks(
+        parseInt(req.params.week),
+        req.session.userId!,
+        req.params.leagueId
+      );
+      res.json(games);
+    } catch (error) {
+      console.error("GL get games with picks error:", error);
+      res.status(500).json({ message: "Failed to get games" });
+    }
+  });
+
+  app.get("/api/gambling-league/my-leagues", requireAuth, async (req, res) => {
+    try {
+      const leagues = await storage.gl_getUserLeagues(req.session.userId!);
+      res.json(leagues);
+    } catch (error) {
+      console.error("GL get my leagues error:", error);
+      res.status(500).json({ message: "Failed to get leagues" });
+    }
+  });
+
+  app.get("/api/gambling-league/picks/:leagueId", requireAuth, async (req, res) => {
+    try {
+      const picks = await storage.gl_getPicks(req.params.leagueId, req.session.userId!);
+      res.json(picks);
+    } catch (error) {
+      console.error("GL get picks error:", error);
+      res.status(500).json({ message: "Failed to get picks" });
+    }
+  });
+
+  app.post("/api/gambling-league/picks", requireAuth, async (req, res) => {
+    try {
+      const picksSchema = z.object({
+        picks: z.array(z.object({
+          gameId: z.string(),
+          leagueId: z.string(),
+          week: z.number(),
+          pickedTeam: z.enum(['home', 'away']).nullable(),
+          note: z.string().nullable().optional(),
+        })),
+      });
+      
+      const result = picksSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ message: result.error.errors[0].message });
+      }
+      
+      const savedPicks = [];
+      for (const pickData of result.data.picks) {
+        if (pickData.pickedTeam === null) {
+          await storage.gl_deletePick(req.session.userId!, pickData.leagueId, pickData.gameId);
+          continue;
+        }
+        
+        const existingPicks = await storage.gl_getPicksByUserLeagueWeek(
+          req.session.userId!,
+          pickData.leagueId,
+          pickData.week
+        );
+        const existingPick = existingPicks.find(p => p.gameId === pickData.gameId);
+        
+        if (existingPick) {
+          const updated = await storage.gl_updatePick(existingPick.id, {
+            pickedTeam: pickData.pickedTeam,
+            note: pickData.note || null,
+          });
+          if (updated) savedPicks.push(updated);
+        } else {
+          const newPick = await storage.gl_createPick({
+            gameId: pickData.gameId,
+            leagueId: pickData.leagueId,
+            week: pickData.week,
+            pickedTeam: pickData.pickedTeam,
+            note: pickData.note || null,
+          }, req.session.userId!);
+          savedPicks.push(newPick);
+        }
+      }
+      
+      res.json(savedPicks);
+    } catch (error) {
+      console.error("GL submit picks error:", error);
+      res.status(500).json({ message: "Failed to submit picks" });
+    }
+  });
+
+  // Admin routes for games
+  app.post("/api/gambling-league/admin/games", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      if (!user?.isAdmin) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+      
+      const result = insertGamblingLeagueGameSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ message: result.error.errors[0].message });
+      }
+      
+      const game = await storage.gl_createGame(result.data);
+      res.json(game);
+    } catch (error) {
+      console.error("GL create game error:", error);
+      res.status(500).json({ message: "Failed to create game" });
+    }
+  });
+
+  app.patch("/api/gambling-league/admin/games/:id/result", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      if (!user?.isAdmin) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+      
+      const result = updateGamblingLeagueGameResultSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ message: result.error.errors[0].message });
+      }
+      
+      const game = await storage.gl_updateGameResult(req.params.id, result.data);
+      if (!game) {
+        return res.status(404).json({ message: "Game not found" });
+      }
+      res.json(game);
+    } catch (error) {
+      console.error("GL update game result error:", error);
+      res.status(500).json({ message: "Failed to update game result" });
+    }
+  });
+
+  app.patch("/api/gambling-league/admin/leagues/:id/week", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      if (!user?.isAdmin) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+      
+      const { week } = req.body;
+      if (typeof week !== 'number' || week < 1) {
+        return res.status(400).json({ message: "Invalid week" });
+      }
+      
+      const league = await storage.gl_updateLeagueWeek(req.params.id, week);
+      if (!league) {
+        return res.status(404).json({ message: "League not found" });
+      }
+      res.json(league);
+    } catch (error) {
+      console.error("GL update league week error:", error);
+      res.status(500).json({ message: "Failed to update league week" });
     }
   });
 

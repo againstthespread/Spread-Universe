@@ -298,6 +298,153 @@ export const fantasyStreamPlaySchema = z.object({
 export type FantasyStreamGame = z.infer<typeof fantasyStreamGameSchema>;
 export type FantasyStreamPlay = z.infer<typeof fantasyStreamPlaySchema>;
 
+// Gambling League Tables
+export const gamblingLeagueLeagues = pgTable("gambling_league_leagues", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name", { length: 100 }).notNull(),
+  capacity: integer("capacity").notNull(),
+  creatorId: varchar("creator_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  status: varchar("status", { length: 20 }).notNull().default('open'),
+  currentWeek: integer("current_week").default(1).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const gamblingLeagueMembers = pgTable("gambling_league_members", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leagueId: varchar("league_id").notNull().references(() => gamblingLeagueLeagues.id, { onDelete: 'cascade' }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  joinedAt: timestamp("joined_at").defaultNow(),
+}, (table) => ({
+  leagueUserUnique: unique("gl_league_user_unique").on(table.leagueId, table.userId),
+}));
+
+export const gamblingLeagueGames = pgTable("gambling_league_games", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  week: integer("week").notNull(),
+  homeTeam: varchar("home_team", { length: 100 }).notNull(),
+  awayTeam: varchar("away_team", { length: 100 }).notNull(),
+  spread: decimal("spread", { precision: 4, scale: 1 }).notNull(),
+  homeScore: integer("home_score"),
+  awayScore: integer("away_score"),
+  isComplete: boolean("is_complete").default(false).notNull(),
+  gameTime: timestamp("game_time").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const gamblingLeaguePicks = pgTable("gambling_league_picks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  leagueId: varchar("league_id").notNull().references(() => gamblingLeagueLeagues.id, { onDelete: 'cascade' }),
+  gameId: varchar("game_id").notNull().references(() => gamblingLeagueGames.id, { onDelete: 'cascade' }),
+  week: integer("week").notNull(),
+  pickedTeam: varchar("picked_team", { length: 10 }).notNull(),
+  note: varchar("note", { length: 500 }),
+  isCorrect: boolean("is_correct"),
+  isPush: boolean("is_push").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  userLeagueGameUnique: unique("gl_user_league_game_unique").on(table.userId, table.leagueId, table.gameId),
+}));
+
+export const gamblingLeagueMatchups = pgTable("gambling_league_matchups", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leagueId: varchar("league_id").notNull().references(() => gamblingLeagueLeagues.id, { onDelete: 'cascade' }),
+  week: integer("week").notNull(),
+  user1Id: varchar("user1_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  user2Id: varchar("user2_id").references(() => users.id, { onDelete: 'cascade' }),
+  user1Npw: integer("user1_npw"),
+  user2Npw: integer("user2_npw"),
+  winnerId: varchar("winner_id").references(() => users.id, { onDelete: 'set null' }),
+  isComplete: boolean("is_complete").default(false).notNull(),
+});
+
+// Gambling League Insert Schemas
+export const insertGamblingLeagueSchema = createInsertSchema(gamblingLeagueLeagues).omit({
+  id: true,
+  creatorId: true,
+  status: true,
+  currentWeek: true,
+  createdAt: true,
+}).extend({
+  capacity: z.enum(['8', '10', '12', '16']).transform(val => parseInt(val)),
+});
+
+export const insertGamblingLeagueMemberSchema = createInsertSchema(gamblingLeagueMembers).omit({
+  id: true,
+  userId: true,
+  joinedAt: true,
+});
+
+export const insertGamblingLeagueGameSchema = createInsertSchema(gamblingLeagueGames).omit({
+  id: true,
+  homeScore: true,
+  awayScore: true,
+  isComplete: true,
+  createdAt: true,
+}).extend({
+  week: z.coerce.number().int().min(1).max(18),
+  spread: z.coerce.number(),
+  gameTime: z.string(),
+});
+
+export const updateGamblingLeagueGameResultSchema = z.object({
+  homeScore: z.coerce.number().int().min(0),
+  awayScore: z.coerce.number().int().min(0),
+});
+
+export const insertGamblingLeaguePickSchema = createInsertSchema(gamblingLeaguePicks).omit({
+  id: true,
+  userId: true,
+  isCorrect: true,
+  isPush: true,
+  createdAt: true,
+}).extend({
+  pickedTeam: z.enum(['home', 'away']),
+});
+
+export const insertGamblingLeagueMatchupSchema = createInsertSchema(gamblingLeagueMatchups).omit({
+  id: true,
+  user1Npw: true,
+  user2Npw: true,
+  winnerId: true,
+  isComplete: true,
+});
+
+// Gambling League Types
+export type GamblingLeagueLeague = typeof gamblingLeagueLeagues.$inferSelect;
+export type InsertGamblingLeagueLeague = z.infer<typeof insertGamblingLeagueSchema>;
+export type GamblingLeagueMember = typeof gamblingLeagueMembers.$inferSelect;
+export type InsertGamblingLeagueMember = z.infer<typeof insertGamblingLeagueMemberSchema>;
+export type GamblingLeagueGame = typeof gamblingLeagueGames.$inferSelect;
+export type InsertGamblingLeagueGame = z.infer<typeof insertGamblingLeagueGameSchema>;
+export type UpdateGamblingLeagueGameResult = z.infer<typeof updateGamblingLeagueGameResultSchema>;
+export type GamblingLeaguePick = typeof gamblingLeaguePicks.$inferSelect;
+export type InsertGamblingLeaguePick = z.infer<typeof insertGamblingLeaguePickSchema>;
+export type GamblingLeagueMatchup = typeof gamblingLeagueMatchups.$inferSelect;
+export type InsertGamblingLeagueMatchup = z.infer<typeof insertGamblingLeagueMatchupSchema>;
+
+export type GamblingLeagueStandingEntry = {
+  userId: string;
+  username: string;
+  wins: number;
+  losses: number;
+  draws: number;
+  totalNpw: number;
+  correctPicks: number;
+  totalPicks: number;
+  pickPercentage: number;
+};
+
+export type GamblingLeagueGameWithPick = GamblingLeagueGame & {
+  userPick?: GamblingLeaguePick | null;
+};
+
+export type GamblingLeagueMatchupWithUsers = GamblingLeagueMatchup & {
+  user1: User;
+  user2?: User | null;
+  winner?: User | null;
+};
+
 export const platforms: Platform[] = [
   {
     id: "crowdline",

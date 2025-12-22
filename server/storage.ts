@@ -8,6 +8,11 @@ import {
   marchmadnessRounds,
   marchmadnessGames,
   marchmadnessPicks,
+  gamblingLeagueLeagues,
+  gamblingLeagueMembers,
+  gamblingLeagueGames,
+  gamblingLeaguePicks,
+  gamblingLeagueMatchups,
   type User, 
   type InsertUser, 
   type PasswordResetCode,
@@ -27,6 +32,19 @@ import {
   type MarchmadnessGameWithTeams,
   type MarchmadnessLeaderboardEntry,
   type MarchmadnessUserStats,
+  type GamblingLeagueLeague,
+  type InsertGamblingLeagueLeague,
+  type GamblingLeagueMember,
+  type GamblingLeagueGame,
+  type InsertGamblingLeagueGame,
+  type UpdateGamblingLeagueGameResult,
+  type GamblingLeaguePick,
+  type InsertGamblingLeaguePick,
+  type GamblingLeagueMatchup,
+  type InsertGamblingLeagueMatchup,
+  type GamblingLeagueStandingEntry,
+  type GamblingLeagueGameWithPick,
+  type GamblingLeagueMatchupWithUsers,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, gt, gte, sql, desc, asc } from "drizzle-orm";
@@ -100,6 +118,35 @@ export interface IStorage {
   
   // MarchMadness initialization
   mm_initializeRounds(): Promise<void>;
+  
+  // Gambling League methods
+  gl_getLeagues(): Promise<GamblingLeagueLeague[]>;
+  gl_getLeague(id: string): Promise<GamblingLeagueLeague | undefined>;
+  gl_createLeague(league: InsertGamblingLeagueLeague, creatorId: string): Promise<GamblingLeagueLeague>;
+  gl_joinLeague(leagueId: string, userId: string): Promise<GamblingLeagueMember>;
+  gl_getLeagueMembers(leagueId: string): Promise<(GamblingLeagueMember & { user: User })[]>;
+  gl_getUserLeagues(userId: string): Promise<GamblingLeagueLeague[]>;
+  gl_updateLeagueStatus(id: string, status: string): Promise<GamblingLeagueLeague | undefined>;
+  gl_updateLeagueWeek(id: string, week: number): Promise<GamblingLeagueLeague | undefined>;
+  
+  gl_getGames(): Promise<GamblingLeagueGame[]>;
+  gl_getGamesByWeek(week: number): Promise<GamblingLeagueGame[]>;
+  gl_createGame(game: InsertGamblingLeagueGame): Promise<GamblingLeagueGame>;
+  gl_updateGameResult(id: string, data: UpdateGamblingLeagueGameResult): Promise<GamblingLeagueGame | undefined>;
+  gl_getGamesWithPicks(week: number, userId: string, leagueId: string): Promise<GamblingLeagueGameWithPick[]>;
+  
+  gl_getPicks(leagueId: string, userId: string): Promise<GamblingLeaguePick[]>;
+  gl_getPicksByUserLeagueWeek(userId: string, leagueId: string, week: number): Promise<GamblingLeaguePick[]>;
+  gl_createPick(pick: InsertGamblingLeaguePick, userId: string): Promise<GamblingLeaguePick>;
+  gl_updatePick(id: string, data: Partial<GamblingLeaguePick>): Promise<GamblingLeaguePick | undefined>;
+  gl_deletePick(userId: string, leagueId: string, gameId: string): Promise<void>;
+  
+  gl_getMatchups(leagueId: string): Promise<GamblingLeagueMatchupWithUsers[]>;
+  gl_getMatchupsByLeagueWeek(leagueId: string, week: number): Promise<GamblingLeagueMatchupWithUsers[]>;
+  gl_createMatchup(matchup: InsertGamblingLeagueMatchup): Promise<GamblingLeagueMatchup>;
+  gl_updateMatchupResult(id: string, data: { user1Npw?: number; user2Npw?: number; winnerId?: string | null; isComplete?: boolean }): Promise<GamblingLeagueMatchup | undefined>;
+  
+  gl_getLeagueStandings(leagueId: string): Promise<GamblingLeagueStandingEntry[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -563,6 +610,268 @@ export class DatabaseStorage implements IStorage {
     for (const round of defaultRounds) {
       await this.mm_createRound(round);
     }
+  }
+
+  // Gambling League methods
+  async gl_getLeagues(): Promise<GamblingLeagueLeague[]> {
+    return await db.select().from(gamblingLeagueLeagues).orderBy(desc(gamblingLeagueLeagues.createdAt));
+  }
+
+  async gl_getLeague(id: string): Promise<GamblingLeagueLeague | undefined> {
+    const [league] = await db.select().from(gamblingLeagueLeagues).where(eq(gamblingLeagueLeagues.id, id));
+    return league || undefined;
+  }
+
+  async gl_createLeague(league: InsertGamblingLeagueLeague, creatorId: string): Promise<GamblingLeagueLeague> {
+    const [newLeague] = await db.insert(gamblingLeagueLeagues).values({ ...league, creatorId }).returning();
+    await db.insert(gamblingLeagueMembers).values({ leagueId: newLeague.id, userId: creatorId });
+    return newLeague;
+  }
+
+  async gl_joinLeague(leagueId: string, userId: string): Promise<GamblingLeagueMember> {
+    const [member] = await db.insert(gamblingLeagueMembers).values({ leagueId, userId }).returning();
+    const members = await this.gl_getLeagueMembers(leagueId);
+    const league = await this.gl_getLeague(leagueId);
+    if (league && members.length >= league.capacity) {
+      await db.update(gamblingLeagueLeagues).set({ status: 'full' }).where(eq(gamblingLeagueLeagues.id, leagueId));
+    }
+    return member;
+  }
+
+  async gl_getLeagueMembers(leagueId: string): Promise<(GamblingLeagueMember & { user: User })[]> {
+    const members = await db.select().from(gamblingLeagueMembers).where(eq(gamblingLeagueMembers.leagueId, leagueId));
+    const result: (GamblingLeagueMember & { user: User })[] = [];
+    for (const member of members) {
+      const user = await this.getUser(member.userId);
+      if (user) {
+        result.push({ ...member, user });
+      }
+    }
+    return result;
+  }
+
+  async gl_getUserLeagues(userId: string): Promise<GamblingLeagueLeague[]> {
+    const memberships = await db.select().from(gamblingLeagueMembers).where(eq(gamblingLeagueMembers.userId, userId));
+    const leagues: GamblingLeagueLeague[] = [];
+    for (const membership of memberships) {
+      const league = await this.gl_getLeague(membership.leagueId);
+      if (league) leagues.push(league);
+    }
+    return leagues;
+  }
+
+  async gl_updateLeagueStatus(id: string, status: string): Promise<GamblingLeagueLeague | undefined> {
+    const [league] = await db.update(gamblingLeagueLeagues).set({ status }).where(eq(gamblingLeagueLeagues.id, id)).returning();
+    return league || undefined;
+  }
+
+  async gl_updateLeagueWeek(id: string, week: number): Promise<GamblingLeagueLeague | undefined> {
+    const [league] = await db.update(gamblingLeagueLeagues).set({ currentWeek: week }).where(eq(gamblingLeagueLeagues.id, id)).returning();
+    return league || undefined;
+  }
+
+  async gl_getGames(): Promise<GamblingLeagueGame[]> {
+    return await db.select().from(gamblingLeagueGames).orderBy(gamblingLeagueGames.gameTime);
+  }
+
+  async gl_getGamesByWeek(week: number): Promise<GamblingLeagueGame[]> {
+    return await db.select().from(gamblingLeagueGames).where(eq(gamblingLeagueGames.week, week)).orderBy(gamblingLeagueGames.gameTime);
+  }
+
+  async gl_createGame(game: InsertGamblingLeagueGame): Promise<GamblingLeagueGame> {
+    const [newGame] = await db.insert(gamblingLeagueGames).values({
+      ...game,
+      gameTime: new Date(game.gameTime),
+      spread: String(game.spread),
+    }).returning();
+    return newGame;
+  }
+
+  async gl_updateGameResult(id: string, data: UpdateGamblingLeagueGameResult): Promise<GamblingLeagueGame | undefined> {
+    const [game] = await db.update(gamblingLeagueGames).set({
+      homeScore: data.homeScore,
+      awayScore: data.awayScore,
+      isComplete: true,
+    }).where(eq(gamblingLeagueGames.id, id)).returning();
+    
+    if (game) {
+      const picks = await db.select().from(gamblingLeaguePicks).where(eq(gamblingLeaguePicks.gameId, id));
+      const spread = parseFloat(game.spread);
+      const homeMargin = data.homeScore - data.awayScore;
+      const adjustedMargin = homeMargin + spread;
+      
+      for (const pick of picks) {
+        let isCorrect: boolean | null = null;
+        let isPush = false;
+        
+        if (adjustedMargin === 0) {
+          isPush = true;
+        } else if (pick.pickedTeam === 'home') {
+          isCorrect = adjustedMargin > 0;
+        } else {
+          isCorrect = adjustedMargin < 0;
+        }
+        
+        await db.update(gamblingLeaguePicks).set({ isCorrect, isPush }).where(eq(gamblingLeaguePicks.id, pick.id));
+      }
+    }
+    
+    return game || undefined;
+  }
+
+  async gl_getGamesWithPicks(week: number, userId: string, leagueId: string): Promise<GamblingLeagueGameWithPick[]> {
+    const games = await this.gl_getGamesByWeek(week);
+    const result: GamblingLeagueGameWithPick[] = [];
+    
+    for (const game of games) {
+      const [pick] = await db.select().from(gamblingLeaguePicks).where(
+        and(
+          eq(gamblingLeaguePicks.gameId, game.id),
+          eq(gamblingLeaguePicks.userId, userId),
+          eq(gamblingLeaguePicks.leagueId, leagueId)
+        )
+      );
+      result.push({ ...game, userPick: pick || null });
+    }
+    
+    return result;
+  }
+
+  async gl_getPicks(leagueId: string, userId: string): Promise<GamblingLeaguePick[]> {
+    return await db.select().from(gamblingLeaguePicks).where(
+      and(eq(gamblingLeaguePicks.leagueId, leagueId), eq(gamblingLeaguePicks.userId, userId))
+    );
+  }
+
+  async gl_getPicksByUserLeagueWeek(userId: string, leagueId: string, week: number): Promise<GamblingLeaguePick[]> {
+    return await db.select().from(gamblingLeaguePicks).where(
+      and(
+        eq(gamblingLeaguePicks.userId, userId),
+        eq(gamblingLeaguePicks.leagueId, leagueId),
+        eq(gamblingLeaguePicks.week, week)
+      )
+    );
+  }
+
+  async gl_createPick(pick: InsertGamblingLeaguePick, userId: string): Promise<GamblingLeaguePick> {
+    const [newPick] = await db.insert(gamblingLeaguePicks).values({ ...pick, userId }).returning();
+    return newPick;
+  }
+
+  async gl_updatePick(id: string, data: Partial<GamblingLeaguePick>): Promise<GamblingLeaguePick | undefined> {
+    const [pick] = await db.update(gamblingLeaguePicks).set(data).where(eq(gamblingLeaguePicks.id, id)).returning();
+    return pick || undefined;
+  }
+
+  async gl_deletePick(userId: string, leagueId: string, gameId: string): Promise<void> {
+    await db.delete(gamblingLeaguePicks).where(
+      and(
+        eq(gamblingLeaguePicks.userId, userId),
+        eq(gamblingLeaguePicks.leagueId, leagueId),
+        eq(gamblingLeaguePicks.gameId, gameId)
+      )
+    );
+  }
+
+  async gl_getMatchups(leagueId: string): Promise<GamblingLeagueMatchupWithUsers[]> {
+    const matchups = await db.select().from(gamblingLeagueMatchups).where(eq(gamblingLeagueMatchups.leagueId, leagueId)).orderBy(asc(gamblingLeagueMatchups.week));
+    const result: GamblingLeagueMatchupWithUsers[] = [];
+    
+    for (const matchup of matchups) {
+      const user1 = await this.getUser(matchup.user1Id);
+      const user2 = matchup.user2Id ? await this.getUser(matchup.user2Id) : null;
+      const winner = matchup.winnerId ? await this.getUser(matchup.winnerId) : null;
+      
+      if (user1) {
+        result.push({ ...matchup, user1, user2: user2 || null, winner: winner || null });
+      }
+    }
+    
+    return result;
+  }
+
+  async gl_getMatchupsByLeagueWeek(leagueId: string, week: number): Promise<GamblingLeagueMatchupWithUsers[]> {
+    const matchups = await db.select().from(gamblingLeagueMatchups).where(
+      and(eq(gamblingLeagueMatchups.leagueId, leagueId), eq(gamblingLeagueMatchups.week, week))
+    );
+    const result: GamblingLeagueMatchupWithUsers[] = [];
+    
+    for (const matchup of matchups) {
+      const user1 = await this.getUser(matchup.user1Id);
+      const user2 = matchup.user2Id ? await this.getUser(matchup.user2Id) : null;
+      const winner = matchup.winnerId ? await this.getUser(matchup.winnerId) : null;
+      
+      if (user1) {
+        result.push({ ...matchup, user1, user2: user2 || null, winner: winner || null });
+      }
+    }
+    
+    return result;
+  }
+
+  async gl_createMatchup(matchup: InsertGamblingLeagueMatchup): Promise<GamblingLeagueMatchup> {
+    const [newMatchup] = await db.insert(gamblingLeagueMatchups).values(matchup).returning();
+    return newMatchup;
+  }
+
+  async gl_updateMatchupResult(id: string, data: { user1Npw?: number; user2Npw?: number; winnerId?: string | null; isComplete?: boolean }): Promise<GamblingLeagueMatchup | undefined> {
+    const [matchup] = await db.update(gamblingLeagueMatchups).set(data).where(eq(gamblingLeagueMatchups.id, id)).returning();
+    return matchup || undefined;
+  }
+
+  async gl_getLeagueStandings(leagueId: string): Promise<GamblingLeagueStandingEntry[]> {
+    const members = await this.gl_getLeagueMembers(leagueId);
+    const matchups = await this.gl_getMatchups(leagueId);
+    const allPicks = await db.select().from(gamblingLeaguePicks).where(eq(gamblingLeaguePicks.leagueId, leagueId));
+    
+    const standings: GamblingLeagueStandingEntry[] = [];
+    
+    for (const member of members) {
+      const user = member.user;
+      
+      let wins = 0;
+      let losses = 0;
+      let draws = 0;
+      let totalNpw = 0;
+      
+      for (const matchup of matchups) {
+        if (!matchup.isComplete) continue;
+        
+        if (matchup.user1Id === user.id) {
+          if (matchup.winnerId === user.id) wins++;
+          else if (matchup.winnerId && matchup.winnerId !== user.id) losses++;
+          else draws++;
+          totalNpw += matchup.user1Npw || 0;
+        } else if (matchup.user2Id === user.id) {
+          if (matchup.winnerId === user.id) wins++;
+          else if (matchup.winnerId && matchup.winnerId !== user.id) losses++;
+          else draws++;
+          totalNpw += matchup.user2Npw || 0;
+        }
+      }
+      
+      const userPicks = allPicks.filter(p => p.userId === user.id);
+      const correctPicks = userPicks.filter(p => p.isCorrect === true).length;
+      const totalPicks = userPicks.length;
+      
+      standings.push({
+        userId: user.id,
+        username: user.username,
+        wins,
+        losses,
+        draws,
+        totalNpw,
+        correctPicks,
+        totalPicks,
+        pickPercentage: totalPicks > 0 ? Math.round((correctPicks / totalPicks) * 100) : 0,
+      });
+    }
+    
+    return standings.sort((a, b) => {
+      if (b.wins !== a.wins) return b.wins - a.wins;
+      if (b.totalNpw !== a.totalNpw) return b.totalNpw - a.totalNpw;
+      return b.pickPercentage - a.pickPercentage;
+    });
   }
 }
 
