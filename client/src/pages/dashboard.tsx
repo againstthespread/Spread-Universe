@@ -104,9 +104,7 @@ export default function Dashboard() {
                       <PlatformCard
                         key={platform.id}
                         platform={platform}
-                        onClick={() => {
-                          window.open(platform.url, "_blank");
-                        }}
+                        onClick={() => setLocation(platform.url)}
                       />
                     ))}
                   </div>

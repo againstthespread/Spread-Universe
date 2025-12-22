@@ -1,4 +1,4 @@
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Shield, ChevronRight, Lock, Globe, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -8,6 +8,7 @@ import { platforms } from "@shared/schema";
 
 export default function Home() {
   const { user } = useAuth();
+  const [, setLocation] = useLocation();
 
   return (
     <div className="flex flex-col min-h-[calc(100vh-4rem)]">
@@ -74,6 +75,7 @@ export default function Home() {
               <PlatformCard
                 key={platform.id}
                 platform={platform}
+                onClick={() => setLocation(user ? platform.url : "/login")}
               />
             ))}
           </div>

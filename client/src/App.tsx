@@ -13,6 +13,7 @@ import Register from "@/pages/register";
 import ForgotPassword from "@/pages/forgot-password";
 import Dashboard from "@/pages/dashboard";
 import Account from "@/pages/account";
+import PlatformPage from "@/pages/platform";
 
 function Router() {
   return (
@@ -23,6 +24,12 @@ function Router() {
       <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/account" component={Account} />
+      <Route path="/crowdline" component={PlatformPage} />
+      <Route path="/marchmadness" component={PlatformPage} />
+      <Route path="/fantasystream" component={PlatformPage} />
+      <Route path="/gambingleague" component={PlatformPage} />
+      <Route path="/postseasonats" component={PlatformPage} />
+      <Route path="/footballweather" component={PlatformPage} />
       <Route component={NotFound} />
     </Switch>
   );
