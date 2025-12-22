@@ -13,6 +13,10 @@ import {
   gamblingLeagueGames,
   gamblingLeaguePicks,
   gamblingLeagueMatchups,
+  postseasonGames,
+  postseasonPicks,
+  POSTSEASON_ROUND_POINTS,
+  POSTSEASON_ROUND_NAMES,
   type User, 
   type InsertUser, 
   type PasswordResetCode,
@@ -45,6 +49,15 @@ import {
   type GamblingLeagueStandingEntry,
   type GamblingLeagueGameWithPick,
   type GamblingLeagueMatchupWithUsers,
+  type PostseasonGame,
+  type InsertPostseasonGame,
+  type PostseasonPick,
+  type InsertPostseasonPick,
+  type PostseasonGameWithPick,
+  type PostseasonPickHistoryItem,
+  type PostseasonLeaderboardEntry,
+  type PostseasonUserStats,
+  type PostseasonRound,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, gt, gte, sql, desc, asc } from "drizzle-orm";
@@ -147,6 +160,27 @@ export interface IStorage {
   gl_updateMatchupResult(id: string, data: { user1Npw?: number; user2Npw?: number; winnerId?: string | null; isComplete?: boolean }): Promise<GamblingLeagueMatchup | undefined>;
   
   gl_getLeagueStandings(leagueId: string): Promise<GamblingLeagueStandingEntry[]>;
+  
+  // PostseasonATS methods
+  ps_getGames(): Promise<PostseasonGame[]>;
+  ps_getGamesByRound(round: string): Promise<PostseasonGame[]>;
+  ps_getGame(id: string): Promise<PostseasonGame | undefined>;
+  ps_getGamesWithPicks(userId?: string): Promise<PostseasonGameWithPick[]>;
+  ps_createGame(game: InsertPostseasonGame): Promise<PostseasonGame>;
+  ps_updateGame(id: string, data: Partial<PostseasonGame>): Promise<PostseasonGame | undefined>;
+  ps_updateGameResult(id: string, homeScore: number, awayScore: number): Promise<PostseasonGame | undefined>;
+  ps_deleteGame(id: string): Promise<void>;
+  
+  ps_getPicks(): Promise<PostseasonPick[]>;
+  ps_getPicksByUser(userId: string): Promise<PostseasonPick[]>;
+  ps_getPickByUserAndGame(userId: string, gameId: string): Promise<PostseasonPick | undefined>;
+  ps_createPick(pick: InsertPostseasonPick & { userId: string }): Promise<PostseasonPick>;
+  ps_updatePick(id: string, selectedTeam: string): Promise<PostseasonPick | undefined>;
+  ps_deletePick(id: string): Promise<void>;
+  
+  ps_getLeaderboard(): Promise<PostseasonLeaderboardEntry[]>;
+  ps_getPickHistory(userId: string): Promise<PostseasonPickHistoryItem[]>;
+  ps_getUserStats(userId: string): Promise<PostseasonUserStats | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -872,6 +906,244 @@ export class DatabaseStorage implements IStorage {
       if (b.totalNpw !== a.totalNpw) return b.totalNpw - a.totalNpw;
       return b.pickPercentage - a.pickPercentage;
     });
+  }
+
+  // PostseasonATS methods
+  async ps_getGames(): Promise<PostseasonGame[]> {
+    return await db.select().from(postseasonGames).orderBy(asc(postseasonGames.gameDate));
+  }
+
+  async ps_getGamesByRound(round: string): Promise<PostseasonGame[]> {
+    return await db.select().from(postseasonGames).where(eq(postseasonGames.round, round)).orderBy(asc(postseasonGames.gameDate));
+  }
+
+  async ps_getGame(id: string): Promise<PostseasonGame | undefined> {
+    const [game] = await db.select().from(postseasonGames).where(eq(postseasonGames.id, id));
+    return game || undefined;
+  }
+
+  async ps_getGamesWithPicks(userId?: string): Promise<PostseasonGameWithPick[]> {
+    const games = await this.ps_getGames();
+    const result: PostseasonGameWithPick[] = [];
+
+    for (const game of games) {
+      let userPick: PostseasonPick | null = null;
+      if (userId) {
+        const pick = await this.ps_getPickByUserAndGame(userId, game.id);
+        userPick = pick || null;
+      }
+      result.push({ ...game, userPick });
+    }
+
+    return result;
+  }
+
+  async ps_createGame(game: InsertPostseasonGame): Promise<PostseasonGame> {
+    const [newGame] = await db.insert(postseasonGames).values({
+      ...game,
+      spread: String(game.spread),
+    }).returning();
+    return newGame;
+  }
+
+  async ps_updateGame(id: string, data: Partial<PostseasonGame>): Promise<PostseasonGame | undefined> {
+    const updateData: Record<string, unknown> = { ...data };
+    if (data.spread !== undefined) {
+      updateData.spread = String(data.spread);
+    }
+    const [game] = await db.update(postseasonGames).set(updateData).where(eq(postseasonGames.id, id)).returning();
+    return game || undefined;
+  }
+
+  async ps_updateGameResult(id: string, homeScore: number, awayScore: number): Promise<PostseasonGame | undefined> {
+    const game = await this.ps_getGame(id);
+    if (!game) return undefined;
+
+    const spread = parseFloat(game.spread);
+    const favoredTeam = game.favoredTeam;
+    
+    let winner: string;
+    let margin: number;
+    
+    if (favoredTeam === 'HOME') {
+      margin = homeScore - awayScore + spread;
+    } else {
+      margin = awayScore - homeScore + spread;
+    }
+    
+    if (margin > 0) {
+      winner = favoredTeam === 'HOME' ? game.homeTeam : game.awayTeam;
+    } else if (margin < 0) {
+      winner = favoredTeam === 'HOME' ? game.awayTeam : game.homeTeam;
+    } else {
+      winner = 'PUSH';
+    }
+
+    const [updatedGame] = await db.update(postseasonGames).set({
+      homeScore,
+      awayScore,
+      isComplete: true,
+      winner,
+    }).where(eq(postseasonGames.id, id)).returning();
+
+    if (updatedGame) {
+      const picks = await db.select().from(postseasonPicks).where(eq(postseasonPicks.gameId, id));
+      const roundPoints = POSTSEASON_ROUND_POINTS[updatedGame.round as PostseasonRound] || 0;
+
+      for (const pick of picks) {
+        let isCorrect: boolean | null = null;
+        let pointsEarned = 0;
+
+        if (winner === 'PUSH') {
+          isCorrect = null;
+          pointsEarned = 0;
+        } else if (pick.selectedTeam === winner) {
+          isCorrect = true;
+          pointsEarned = roundPoints;
+        } else {
+          isCorrect = false;
+          pointsEarned = 0;
+        }
+
+        await db.update(postseasonPicks).set({ isCorrect, pointsEarned }).where(eq(postseasonPicks.id, pick.id));
+      }
+    }
+
+    return updatedGame || undefined;
+  }
+
+  async ps_deleteGame(id: string): Promise<void> {
+    await db.delete(postseasonGames).where(eq(postseasonGames.id, id));
+  }
+
+  async ps_getPicks(): Promise<PostseasonPick[]> {
+    return await db.select().from(postseasonPicks);
+  }
+
+  async ps_getPicksByUser(userId: string): Promise<PostseasonPick[]> {
+    return await db.select().from(postseasonPicks).where(eq(postseasonPicks.userId, userId));
+  }
+
+  async ps_getPickByUserAndGame(userId: string, gameId: string): Promise<PostseasonPick | undefined> {
+    const [pick] = await db.select().from(postseasonPicks).where(
+      and(eq(postseasonPicks.userId, userId), eq(postseasonPicks.gameId, gameId))
+    );
+    return pick || undefined;
+  }
+
+  async ps_createPick(pick: InsertPostseasonPick & { userId: string }): Promise<PostseasonPick> {
+    const [newPick] = await db.insert(postseasonPicks).values(pick).returning();
+    return newPick;
+  }
+
+  async ps_updatePick(id: string, selectedTeam: string): Promise<PostseasonPick | undefined> {
+    const [pick] = await db.update(postseasonPicks).set({ selectedTeam }).where(eq(postseasonPicks.id, id)).returning();
+    return pick || undefined;
+  }
+
+  async ps_deletePick(id: string): Promise<void> {
+    await db.delete(postseasonPicks).where(eq(postseasonPicks.id, id));
+  }
+
+  async ps_getLeaderboard(): Promise<PostseasonLeaderboardEntry[]> {
+    const allUsers = await db.select().from(users);
+    const allPicks = await db.select().from(postseasonPicks);
+    const allGames = await db.select().from(postseasonGames);
+
+    const leaderboard: PostseasonLeaderboardEntry[] = [];
+
+    for (const user of allUsers) {
+      const userPicks = allPicks.filter(p => p.userId === user.id);
+      if (userPicks.length === 0) continue;
+
+      const correctPicks = userPicks.filter(p => p.isCorrect === true).length;
+      const totalPoints = userPicks.reduce((sum, p) => sum + (p.pointsEarned || 0), 0);
+      
+      let maxPossible = 0;
+      let remaining = 0;
+      
+      for (const game of allGames) {
+        const roundPoints = POSTSEASON_ROUND_POINTS[game.round as PostseasonRound] || 0;
+        const hasPick = userPicks.some(p => p.gameId === game.id);
+        
+        if (game.isComplete) {
+          if (hasPick) {
+            maxPossible += roundPoints;
+          }
+        } else {
+          if (hasPick) {
+            remaining += roundPoints;
+          }
+        }
+      }
+
+      leaderboard.push({
+        userId: user.id,
+        username: user.username,
+        totalPoints,
+        correctPicks,
+        totalPicks: userPicks.length,
+        maxPossible: maxPossible + totalPoints,
+        remaining,
+      });
+    }
+
+    return leaderboard.sort((a, b) => b.totalPoints - a.totalPoints);
+  }
+
+  async ps_getPickHistory(userId: string): Promise<PostseasonPickHistoryItem[]> {
+    const picks = await this.ps_getPicksByUser(userId);
+    const result: PostseasonPickHistoryItem[] = [];
+
+    for (const pick of picks) {
+      const game = await this.ps_getGame(pick.gameId);
+      if (game) {
+        result.push({ ...pick, game });
+      }
+    }
+
+    return result.sort((a, b) => new Date(b.game.gameDate).getTime() - new Date(a.game.gameDate).getTime());
+  }
+
+  async ps_getUserStats(userId: string): Promise<PostseasonUserStats | undefined> {
+    const user = await this.getUser(userId);
+    if (!user) return undefined;
+
+    const userPicks = await this.ps_getPicksByUser(userId);
+    const allGames = await this.ps_getGames();
+    const leaderboard = await this.ps_getLeaderboard();
+
+    const correctPicks = userPicks.filter(p => p.isCorrect === true).length;
+    const totalPoints = userPicks.reduce((sum, p) => sum + (p.pointsEarned || 0), 0);
+    const rank = leaderboard.findIndex(e => e.userId === userId) + 1;
+
+    const rounds: PostseasonRound[] = ['WILD_CARD', 'DIVISIONAL', 'CONFERENCE', 'SUPER_BOWL'];
+    const roundStats = [];
+
+    for (const round of rounds) {
+      const roundGames = allGames.filter(g => g.round === round);
+      const gameIds = new Set(roundGames.map(g => g.id));
+      const roundPicks = userPicks.filter(p => gameIds.has(p.gameId));
+      const roundCorrect = roundPicks.filter(p => p.isCorrect === true).length;
+      const roundPoints = roundPicks.reduce((sum, p) => sum + (p.pointsEarned || 0), 0);
+
+      roundStats.push({
+        round,
+        roundName: POSTSEASON_ROUND_NAMES[round],
+        correctPicks: roundCorrect,
+        totalPicks: roundPicks.length,
+        pointsEarned: roundPoints,
+      });
+    }
+
+    return {
+      totalPoints,
+      correctPicks,
+      totalPicks: userPicks.length,
+      winPercentage: userPicks.length > 0 ? Math.round((correctPicks / userPicks.length) * 100) : 0,
+      rank: rank || leaderboard.length + 1,
+      roundStats,
+    };
   }
 }
 

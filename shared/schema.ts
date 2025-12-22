@@ -445,6 +445,116 @@ export type GamblingLeagueMatchupWithUsers = GamblingLeagueMatchup & {
   winner?: User | null;
 };
 
+// PostseasonATS Tables and Types
+export const POSTSEASON_ROUND_POINTS = {
+  WILD_CARD: 125,
+  DIVISIONAL: 250,
+  CONFERENCE: 500,
+  SUPER_BOWL: 1000,
+} as const;
+
+export const POSTSEASON_ROUND_NAMES = {
+  WILD_CARD: "Wild Card",
+  DIVISIONAL: "Divisional Round",
+  CONFERENCE: "Conference Championship",
+  SUPER_BOWL: "Super Bowl",
+} as const;
+
+export type PostseasonRound = keyof typeof POSTSEASON_ROUND_POINTS;
+
+export const postseasonGames = pgTable("postseason_games", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  round: varchar("round", { length: 20 }).notNull(),
+  homeTeam: text("home_team").notNull(),
+  awayTeam: text("away_team").notNull(),
+  spread: decimal("spread", { precision: 4, scale: 1 }).notNull(),
+  favoredTeam: varchar("favored_team", { length: 10 }).notNull(),
+  gameDate: timestamp("game_date").notNull(),
+  pickDeadline: timestamp("pick_deadline"),
+  homeScore: integer("home_score"),
+  awayScore: integer("away_score"),
+  isComplete: boolean("is_complete").notNull().default(false),
+  winner: text("winner"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const postseasonPicks = pgTable("postseason_picks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  gameId: varchar("game_id").notNull().references(() => postseasonGames.id, { onDelete: "cascade" }),
+  selectedTeam: text("selected_team").notNull(),
+  isCorrect: boolean("is_correct"),
+  pointsEarned: integer("points_earned").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  userGameUnique: unique("ps_user_game_unique").on(table.userId, table.gameId),
+}));
+
+export const insertPostseasonGameSchema = createInsertSchema(postseasonGames).omit({
+  id: true,
+  createdAt: true,
+  homeScore: true,
+  awayScore: true,
+  isComplete: true,
+  winner: true,
+}).extend({
+  round: z.enum(["WILD_CARD", "DIVISIONAL", "CONFERENCE", "SUPER_BOWL"]),
+  favoredTeam: z.enum(["HOME", "AWAY"]),
+  gameDate: z.string().or(z.date()).transform((val) => new Date(val)),
+  pickDeadline: z.string().or(z.date()).transform((val) => new Date(val)).optional(),
+});
+
+export const updatePostseasonGameResultSchema = z.object({
+  homeScore: z.coerce.number().int().min(0),
+  awayScore: z.coerce.number().int().min(0),
+});
+
+export const insertPostseasonPickSchema = createInsertSchema(postseasonPicks).omit({
+  id: true,
+  createdAt: true,
+  userId: true,
+  isCorrect: true,
+  pointsEarned: true,
+});
+
+export type PostseasonGame = typeof postseasonGames.$inferSelect;
+export type InsertPostseasonGame = z.infer<typeof insertPostseasonGameSchema>;
+export type PostseasonPick = typeof postseasonPicks.$inferSelect;
+export type InsertPostseasonPick = z.infer<typeof insertPostseasonPickSchema>;
+
+export type PostseasonGameWithPick = PostseasonGame & {
+  userPick?: PostseasonPick | null;
+};
+
+export type PostseasonPickHistoryItem = PostseasonPick & {
+  game: PostseasonGame;
+};
+
+export type PostseasonLeaderboardEntry = {
+  userId: string;
+  username: string;
+  totalPoints: number;
+  correctPicks: number;
+  totalPicks: number;
+  maxPossible: number;
+  remaining: number;
+};
+
+export type PostseasonUserStats = {
+  totalPoints: number;
+  correctPicks: number;
+  totalPicks: number;
+  winPercentage: number;
+  rank: number;
+  roundStats: {
+    round: PostseasonRound;
+    roundName: string;
+    correctPicks: number;
+    totalPicks: number;
+    pointsEarned: number;
+  }[];
+};
+
 export const platforms: Platform[] = [
   {
     id: "crowdline",

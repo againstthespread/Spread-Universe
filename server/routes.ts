@@ -17,6 +17,9 @@ import {
   insertGamblingLeagueGameSchema,
   updateGamblingLeagueGameResultSchema,
   insertGamblingLeaguePickSchema,
+  insertPostseasonGameSchema,
+  insertPostseasonPickSchema,
+  updatePostseasonGameResultSchema,
   type FantasyStreamGame,
   type FantasyStreamPlay,
 } from "@shared/schema";
@@ -1008,6 +1011,188 @@ export async function registerRoutes(
     } catch (error) {
       console.error("GL update league week error:", error);
       res.status(500).json({ message: "Failed to update league week" });
+    }
+  });
+
+  // PostseasonATS Routes
+  app.get("/api/postseason/games", requireAuth, async (req, res) => {
+    try {
+      const { round } = req.query;
+      if (round && typeof round === "string") {
+        const games = await storage.ps_getGamesByRound(round);
+        return res.json(games);
+      }
+      const games = await storage.ps_getGamesWithPicks(req.session.userId);
+      res.json(games);
+    } catch (error) {
+      console.error("PS get games error:", error);
+      res.status(500).json({ message: "Failed to get games" });
+    }
+  });
+
+  app.get("/api/postseason/games/:id", requireAuth, async (req, res) => {
+    try {
+      const game = await storage.ps_getGame(req.params.id);
+      if (!game) {
+        return res.status(404).json({ message: "Game not found" });
+      }
+      const userPick = await storage.ps_getPickByUserAndGame(req.session.userId!, req.params.id);
+      res.json({ ...game, userPick: userPick || null });
+    } catch (error) {
+      console.error("PS get game error:", error);
+      res.status(500).json({ message: "Failed to get game" });
+    }
+  });
+
+  app.post("/api/postseason/picks", requireAuth, async (req, res) => {
+    try {
+      const result = insertPostseasonPickSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ message: result.error.errors[0].message });
+      }
+
+      const { gameId, selectedTeam } = result.data;
+      const userId = req.session.userId!;
+
+      const game = await storage.ps_getGame(gameId);
+      if (!game) {
+        return res.status(404).json({ message: "Game not found" });
+      }
+
+      const deadline = game.pickDeadline || game.gameDate;
+      if (new Date() >= new Date(deadline)) {
+        return res.status(400).json({ message: "Pick deadline has passed" });
+      }
+
+      const existingPick = await storage.ps_getPickByUserAndGame(userId, gameId);
+      if (existingPick) {
+        const updated = await storage.ps_updatePick(existingPick.id, selectedTeam);
+        return res.json(updated);
+      }
+
+      const pick = await storage.ps_createPick({ ...result.data, userId });
+      res.json(pick);
+    } catch (error) {
+      console.error("PS submit pick error:", error);
+      res.status(500).json({ message: "Failed to submit pick" });
+    }
+  });
+
+  app.get("/api/postseason/picks/me", requireAuth, async (req, res) => {
+    try {
+      const picks = await storage.ps_getPicksByUser(req.session.userId!);
+      res.json(picks);
+    } catch (error) {
+      console.error("PS get picks error:", error);
+      res.status(500).json({ message: "Failed to get picks" });
+    }
+  });
+
+  app.get("/api/postseason/picks/history", requireAuth, async (req, res) => {
+    try {
+      const history = await storage.ps_getPickHistory(req.session.userId!);
+      res.json(history);
+    } catch (error) {
+      console.error("PS get pick history error:", error);
+      res.status(500).json({ message: "Failed to get pick history" });
+    }
+  });
+
+  app.get("/api/postseason/leaderboard", requireAuth, async (req, res) => {
+    try {
+      const leaderboard = await storage.ps_getLeaderboard();
+      res.json(leaderboard);
+    } catch (error) {
+      console.error("PS get leaderboard error:", error);
+      res.status(500).json({ message: "Failed to get leaderboard" });
+    }
+  });
+
+  app.get("/api/postseason/stats/me", requireAuth, async (req, res) => {
+    try {
+      const stats = await storage.ps_getUserStats(req.session.userId!);
+      res.json(stats || { totalPoints: 0, correctPicks: 0, totalPicks: 0, winPercentage: 0, rank: 0, roundStats: [] });
+    } catch (error) {
+      console.error("PS get user stats error:", error);
+      res.status(500).json({ message: "Failed to get stats" });
+    }
+  });
+
+  // PostseasonATS Admin Routes
+  const requirePostseasonAdmin = async (req: Request, res: Response, next: NextFunction) => {
+    if (!req.session.userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const user = await storage.getUser(req.session.userId);
+    if (!user || (user.email !== "admin@crowdline.com" && user.email !== "admin@postseason.com")) {
+      return res.status(403).json({ message: "Forbidden - Admin access required" });
+    }
+    next();
+  };
+
+  app.get("/api/postseason/admin/games", requirePostseasonAdmin, async (req, res) => {
+    try {
+      const games = await storage.ps_getGames();
+      res.json(games);
+    } catch (error) {
+      console.error("PS admin get games error:", error);
+      res.status(500).json({ message: "Failed to get games" });
+    }
+  });
+
+  app.post("/api/postseason/admin/games", requirePostseasonAdmin, async (req, res) => {
+    try {
+      const result = insertPostseasonGameSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ message: result.error.errors[0].message });
+      }
+
+      const game = await storage.ps_createGame(result.data);
+      res.json(game);
+    } catch (error) {
+      console.error("PS admin create game error:", error);
+      res.status(500).json({ message: "Failed to create game" });
+    }
+  });
+
+  app.patch("/api/postseason/admin/games/:id", requirePostseasonAdmin, async (req, res) => {
+    try {
+      const game = await storage.ps_updateGame(req.params.id, req.body);
+      if (!game) {
+        return res.status(404).json({ message: "Game not found" });
+      }
+      res.json(game);
+    } catch (error) {
+      console.error("PS admin update game error:", error);
+      res.status(500).json({ message: "Failed to update game" });
+    }
+  });
+
+  app.delete("/api/postseason/admin/games/:id", requirePostseasonAdmin, async (req, res) => {
+    try {
+      await storage.ps_deleteGame(req.params.id);
+      res.json({ message: "Game deleted" });
+    } catch (error) {
+      console.error("PS admin delete game error:", error);
+      res.status(500).json({ message: "Failed to delete game" });
+    }
+  });
+
+  app.patch("/api/postseason/admin/games/:id/result", requirePostseasonAdmin, async (req, res) => {
+    try {
+      const result = updatePostseasonGameResultSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ message: result.error.errors[0].message });
+      }
+
+      const game = await storage.ps_updateGameResult(req.params.id, result.data.homeScore, result.data.awayScore);
+      if (!game) {
+        return res.status(404).json({ message: "Game not found" });
+      }
+      res.json(game);
+    } catch (error) {
+      console.error("PS admin update result error:", error);
+      res.status(500).json({ message: "Failed to update result" });
     }
   });
 

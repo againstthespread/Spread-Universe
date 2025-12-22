@@ -23,6 +23,10 @@ import MarchMadnessAdmin from "@/pages/marchmadness/admin";
 import FantasyStreamDashboard from "@/pages/fantasystream/index";
 import GamblingLeagueDashboard from "@/pages/gambling-league/index";
 import GamblingLeagueDetail from "@/pages/gambling-league/league-detail";
+import PostseasonDashboard from "@/pages/postseason/index";
+import PostseasonLeaderboard from "@/pages/postseason/leaderboard";
+import PostseasonPicksHistory from "@/pages/postseason/picks-history";
+import PostseasonAdmin from "@/pages/postseason/admin";
 
 function Router() {
   return (
@@ -42,7 +46,11 @@ function Router() {
       <Route path="/fantasystream" component={FantasyStreamDashboard} />
       <Route path="/gambling-league" component={GamblingLeagueDashboard} />
       <Route path="/gambling-league/leagues/:id" component={GamblingLeagueDetail} />
-      <Route path="/postseasonats" component={PlatformPage} />
+      <Route path="/postseason" component={PostseasonDashboard} />
+      <Route path="/postseason/leaderboard" component={PostseasonLeaderboard} />
+      <Route path="/postseason/history" component={PostseasonPicksHistory} />
+      <Route path="/postseason/admin" component={PostseasonAdmin} />
+      <Route path="/postseasonats" component={PostseasonDashboard} />
       <Route path="/footballweather" component={PlatformPage} />
       <Route component={NotFound} />
     </Switch>
