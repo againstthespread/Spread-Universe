@@ -45,12 +45,35 @@ The `shared/` directory contains:
 - `schema.ts` - Drizzle table definitions and Zod validation schemas shared between frontend and backend
 
 ### Database Schema
-Two main tables:
+
+**Core Authentication Tables:**
 - `users` - id, email, username, password
 - `password_reset_codes` - id, userId, code, expiresAt, used
 
+**CrowdLine Tables (NFL score predictions):**
+- `crowdline_games` - NFL games with Vegas spreads and over/under
+- `crowdline_predictions` - User score predictions per game
+
+**March Madness Tables (NCAA tournament picks):**
+- `marchmadness_teams` - Tournament teams with seeds and conferences
+- `marchmadness_rounds` - Tournament rounds with point values (10→320)
+- `marchmadness_games` - Tournament games with spreads
+- `marchmadness_picks` - User picks per game
+
+**Gambling League Tables (betting leagues):**
+- `gamblingLeague_leagues` - User-created leagues (8/10/12/16 capacity)
+- `gamblingLeague_members` - League memberships
+- `gamblingLeague_games` - Weekly NFL games
+- `gamblingLeague_picks` - User picks per game per league
+- `gamblingLeague_matchups` - Head-to-head weekly matchups
+
+**Postseason ATS Tables (NFL playoff picks):**
+- `postseason_games` - Playoff games by round (Wild Card→Super Bowl)
+- `postseason_picks` - User picks with escalating point values (125→1000)
+
 ### API Structure
-All API routes are prefixed with `/api/auth/`:
+
+**Authentication (`/api/auth/`):**
 - `POST /api/auth/register` - Create new account
 - `POST /api/auth/login` - Authenticate user
 - `POST /api/auth/logout` - End session
@@ -60,6 +83,24 @@ All API routes are prefixed with `/api/auth/`:
 - `POST /api/auth/reset-password` - Set new password
 - `PUT /api/auth/profile` - Update username
 - `PUT /api/auth/password` - Change password
+
+**CrowdLine (`/api/crowdline/`):**
+- Games with stats, predictions, leaderboard, admin game management
+
+**March Madness (`/api/marchmadness/`):**
+- Teams, rounds, games, picks, leaderboard, admin management
+
+**FantasyStream (`/api/fantasystream/`):**
+- Live games, plays with filtering
+
+**Gambling League (`/api/gambling-league/`):**
+- Leagues, membership, games, picks, matchups, standings
+
+**Postseason ATS (`/api/postseason/`):**
+- Playoff games by round, picks, leaderboard, pick history
+
+**Football Weather (`/api/football-weather/`):**
+- Games with weather data and fantasy implications
 
 ### Design System
 The application follows documented design guidelines in `design_guidelines.md`:
@@ -97,10 +138,40 @@ The application follows documented design guidelines in `design_guidelines.md`:
 - `DATABASE_URL` - PostgreSQL connection string
 - `SESSION_SECRET` - Session encryption key (optional, has default)
 
+### Frontend Pages
+
+**Core Pages:**
+- `/` - Landing page with platform overview
+- `/login`, `/register` - Authentication pages
+- `/dashboard` - Platform selection hub (6 platforms)
+- `/account` - Account management
+- `/forgot-password` - Password reset with 6-digit code
+
+**Platform Pages:**
+- `/crowdline`, `/crowdline/leaderboard`, `/crowdline/admin` - NFL score predictions
+- `/marchmadness`, `/marchmadness/leaderboard`, `/marchmadness/admin` - NCAA tournament picks
+- `/fantasystream` - Live NFL play-by-play viewer
+- `/gambling-league`, `/gambling-league/leagues/:id` - Betting leagues
+- `/postseason`, `/postseason/leaderboard`, `/postseason/history`, `/postseason/admin` - NFL playoff picks
+- `/footballweather` - Weather-based game analysis
+
 ## Recent Changes
+
+### Platform Integrations (Dec 2024)
+- Integrated 6 fully functional sports betting platforms:
+  1. **CrowdLine** - NFL score predictions with crowd-sourced spreads and leaderboard
+  2. **March Madness ATS** - NCAA tournament bracket picks with escalating point values
+  3. **FantasyStream** - Live NFL play-by-play viewer with filtering
+  4. **Gambling League** - Create/join betting leagues with head-to-head matchups
+  5. **Postseason ATS** - NFL playoff picks with history tracking
+  6. **Football Weather** - Weather-based fantasy implications for games
 
 ### Authentication Flow Fixes (Dec 2024)
 - Fixed JSON response parsing in login/register pages - `apiRequest` returns a Response object, so we call `res.json()` to get the data
 - Added race condition prevention in auth-context using generation tracking to ignore stale responses
 - Used React's `flushSync` from react-dom to ensure synchronous state updates before navigation after login/register
 - Session persistence verified across page reloads via session cookies
+
+### Admin Access
+- Admin users: admin@crowdline.com, admin@marchmadness.com, admin@postseason.com
+- Admin privileges required for game management and results entry
