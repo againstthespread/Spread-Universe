@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { LogOut, User, Shield, ChevronDown, Menu, X } from "lucide-react";
+import { LogOut, User, Shield, ChevronDown, Menu, X, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useAuth } from "@/lib/auth-context";
@@ -63,6 +63,17 @@ export function Header() {
                     Account Settings
                   </Link>
                 </DropdownMenuItem>
+                {user.isAdmin && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                      <Link href="/admin" className="flex items-center gap-2 cursor-pointer" data-testid="link-admin">
+                        <Settings className="h-4 w-4" />
+                        Admin Panel
+                      </Link>
+                    </DropdownMenuItem>
+                  </>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={() => logout()}
@@ -127,6 +138,13 @@ export function Header() {
                     Account Settings
                   </Button>
                 </Link>
+                {user.isAdmin && (
+                  <Link href="/admin" onClick={() => setMobileMenuOpen(false)}>
+                    <Button variant="ghost" className="w-full justify-start">
+                      Admin Panel
+                    </Button>
+                  </Link>
+                )}
                 <Button
                   variant="ghost"
                   className="w-full justify-start text-destructive"
