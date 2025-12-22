@@ -17,6 +17,9 @@ import PlatformPage from "@/pages/platform";
 import CrowdlineDashboard from "@/pages/crowdline/index";
 import CrowdlineLeaderboard from "@/pages/crowdline/leaderboard";
 import CrowdlineAdmin from "@/pages/crowdline/admin";
+import MarchMadnessDashboard from "@/pages/marchmadness/index";
+import MarchMadnessLeaderboard from "@/pages/marchmadness/leaderboard";
+import MarchMadnessAdmin from "@/pages/marchmadness/admin";
 
 function Router() {
   return (
@@ -30,7 +33,9 @@ function Router() {
       <Route path="/crowdline" component={CrowdlineDashboard} />
       <Route path="/crowdline/leaderboard" component={CrowdlineLeaderboard} />
       <Route path="/crowdline/admin" component={CrowdlineAdmin} />
-      <Route path="/marchmadness" component={PlatformPage} />
+      <Route path="/marchmadness" component={MarchMadnessDashboard} />
+      <Route path="/marchmadness/leaderboard" component={MarchMadnessLeaderboard} />
+      <Route path="/marchmadness/admin" component={MarchMadnessAdmin} />
       <Route path="/fantasystream" component={PlatformPage} />
       <Route path="/gambingleague" component={PlatformPage} />
       <Route path="/postseasonats" component={PlatformPage} />

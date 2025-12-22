@@ -1,7 +1,19 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { loginSchema, registerSchema, requestResetSchema, verifyCodeSchema, insertCrowdlineGameSchema, insertCrowdlinePredictionSchema, updateCrowdlineGameResultSchema } from "@shared/schema";
+import { 
+  loginSchema, 
+  registerSchema, 
+  requestResetSchema, 
+  verifyCodeSchema, 
+  insertCrowdlineGameSchema, 
+  insertCrowdlinePredictionSchema, 
+  updateCrowdlineGameResultSchema,
+  insertMarchmadnessTeamSchema,
+  insertMarchmadnessGameSchema,
+  updateMarchmadnessGameSchema,
+  insertMarchmadnessPickSchema,
+} from "@shared/schema";
 import { z } from "zod";
 import session from "express-session";
 import MemoryStore from "memorystore";
@@ -394,6 +406,265 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Admin update result error:", error);
       res.status(500).json({ message: "Failed to update result" });
+    }
+  });
+
+  // MarchMadness Routes
+  // Initialize rounds on first access
+  await storage.mm_initializeRounds();
+
+  app.get("/api/marchmadness/teams", requireAuth, async (req, res) => {
+    try {
+      const teams = await storage.mm_getTeams();
+      res.json(teams);
+    } catch (error) {
+      console.error("Get teams error:", error);
+      res.status(500).json({ message: "Failed to get teams" });
+    }
+  });
+
+  app.get("/api/marchmadness/teams/by-conference", requireAuth, async (req, res) => {
+    try {
+      const teams = await storage.mm_getTeams();
+      const grouped = teams.reduce((acc, team) => {
+        const conf = team.conference || "Unknown";
+        if (!acc[conf]) acc[conf] = [];
+        acc[conf].push(team);
+        return acc;
+      }, {} as Record<string, typeof teams>);
+      res.json(grouped);
+    } catch (error) {
+      console.error("Get teams by conference error:", error);
+      res.status(500).json({ message: "Failed to get teams" });
+    }
+  });
+
+  app.get("/api/marchmadness/rounds", requireAuth, async (req, res) => {
+    try {
+      const rounds = await storage.mm_getRounds();
+      res.json(rounds);
+    } catch (error) {
+      console.error("Get rounds error:", error);
+      res.status(500).json({ message: "Failed to get rounds" });
+    }
+  });
+
+  app.get("/api/marchmadness/games", requireAuth, async (req, res) => {
+    try {
+      const { roundId } = req.query;
+      if (roundId && typeof roundId === "string") {
+        const games = await storage.mm_getGamesByRoundWithTeams(roundId, req.session.userId);
+        return res.json(games);
+      }
+      const games = await storage.mm_getUpcomingGames(req.session.userId);
+      res.json(games);
+    } catch (error) {
+      console.error("Get games error:", error);
+      res.status(500).json({ message: "Failed to get games" });
+    }
+  });
+
+  app.get("/api/marchmadness/games/round/:id", requireAuth, async (req, res) => {
+    try {
+      const games = await storage.mm_getGamesByRoundWithTeams(req.params.id, req.session.userId);
+      res.json(games);
+    } catch (error) {
+      console.error("Get games by round error:", error);
+      res.status(500).json({ message: "Failed to get games" });
+    }
+  });
+
+  app.get("/api/marchmadness/games/:id", requireAuth, async (req, res) => {
+    try {
+      const game = await storage.mm_getGameWithTeams(req.params.id);
+      if (!game) {
+        return res.status(404).json({ message: "Game not found" });
+      }
+      res.json(game);
+    } catch (error) {
+      console.error("Get game error:", error);
+      res.status(500).json({ message: "Failed to get game" });
+    }
+  });
+
+  app.post("/api/marchmadness/picks", requireAuth, async (req, res) => {
+    try {
+      const result = insertMarchmadnessPickSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ message: result.error.errors[0].message });
+      }
+
+      const { gameId, pickedTeamId } = result.data;
+      const userId = req.session.userId!;
+
+      const game = await storage.mm_getGame(gameId);
+      if (!game) {
+        return res.status(404).json({ message: "Game not found" });
+      }
+
+      if (new Date() >= new Date(game.startTime)) {
+        return res.status(400).json({ message: "Game has already started" });
+      }
+
+      const existingPick = await storage.mm_getPickByUserAndGame(userId, gameId);
+      if (existingPick) {
+        const updated = await storage.mm_updatePick(existingPick.id, pickedTeamId);
+        return res.json(updated);
+      }
+
+      const pick = await storage.mm_createPick({ visitorId: userId, gameId, pickedTeamId });
+      res.json(pick);
+    } catch (error) {
+      console.error("Submit pick error:", error);
+      res.status(500).json({ message: "Failed to submit pick" });
+    }
+  });
+
+  app.get("/api/marchmadness/picks/me", requireAuth, async (req, res) => {
+    try {
+      const picks = await storage.mm_getPicksByUser(req.session.userId!);
+      res.json(picks);
+    } catch (error) {
+      console.error("Get picks error:", error);
+      res.status(500).json({ message: "Failed to get picks" });
+    }
+  });
+
+  app.get("/api/marchmadness/leaderboard", requireAuth, async (req, res) => {
+    try {
+      const leaderboard = await storage.mm_getLeaderboard();
+      res.json(leaderboard);
+    } catch (error) {
+      console.error("Get leaderboard error:", error);
+      res.status(500).json({ message: "Failed to get leaderboard" });
+    }
+  });
+
+  app.get("/api/marchmadness/users/me/stats", requireAuth, async (req, res) => {
+    try {
+      const stats = await storage.mm_getUserStats(req.session.userId!);
+      res.json(stats || { totalPoints: 0, correctPicks: 0, totalPicks: 0, winPercentage: 0, rank: 0, roundStats: [] });
+    } catch (error) {
+      console.error("Get user stats error:", error);
+      res.status(500).json({ message: "Failed to get stats" });
+    }
+  });
+
+  // MarchMadness Admin Routes
+  const requireMarchmadnessAdmin = async (req: Request, res: Response, next: NextFunction) => {
+    if (!req.session.userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const user = await storage.getUser(req.session.userId);
+    if (!user || (user.email !== "admin@crowdline.com" && user.email !== "admin@marchmadness.com")) {
+      return res.status(403).json({ message: "Forbidden - Admin access required" });
+    }
+    next();
+  };
+
+  app.get("/api/marchmadness/admin/teams", requireMarchmadnessAdmin, async (req, res) => {
+    try {
+      const teams = await storage.mm_getTeams();
+      res.json(teams);
+    } catch (error) {
+      console.error("Admin get teams error:", error);
+      res.status(500).json({ message: "Failed to get teams" });
+    }
+  });
+
+  app.post("/api/marchmadness/admin/teams", requireMarchmadnessAdmin, async (req, res) => {
+    try {
+      const result = insertMarchmadnessTeamSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ message: result.error.errors[0].message });
+      }
+
+      const team = await storage.mm_createTeam(result.data);
+      res.json(team);
+    } catch (error) {
+      console.error("Admin create team error:", error);
+      res.status(500).json({ message: "Failed to create team" });
+    }
+  });
+
+  app.patch("/api/marchmadness/admin/teams/:id", requireMarchmadnessAdmin, async (req, res) => {
+    try {
+      const team = await storage.mm_updateTeam(req.params.id, req.body);
+      if (!team) {
+        return res.status(404).json({ message: "Team not found" });
+      }
+      res.json(team);
+    } catch (error) {
+      console.error("Admin update team error:", error);
+      res.status(500).json({ message: "Failed to update team" });
+    }
+  });
+
+  app.get("/api/marchmadness/admin/rounds", requireMarchmadnessAdmin, async (req, res) => {
+    try {
+      const rounds = await storage.mm_getRounds();
+      res.json(rounds);
+    } catch (error) {
+      console.error("Admin get rounds error:", error);
+      res.status(500).json({ message: "Failed to get rounds" });
+    }
+  });
+
+  app.get("/api/marchmadness/admin/games", requireMarchmadnessAdmin, async (req, res) => {
+    try {
+      const { roundId } = req.query;
+      if (roundId && typeof roundId === "string") {
+        const games = await storage.mm_getGamesByRoundWithTeams(roundId);
+        return res.json(games);
+      }
+      const games = await storage.mm_getUpcomingGames();
+      res.json(games);
+    } catch (error) {
+      console.error("Admin get games error:", error);
+      res.status(500).json({ message: "Failed to get games" });
+    }
+  });
+
+  app.post("/api/marchmadness/admin/games", requireMarchmadnessAdmin, async (req, res) => {
+    try {
+      const result = insertMarchmadnessGameSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ message: result.error.errors[0].message });
+      }
+
+      const game = await storage.mm_createGame(result.data);
+      res.json(game);
+    } catch (error) {
+      console.error("Admin create game error:", error);
+      res.status(500).json({ message: "Failed to create game" });
+    }
+  });
+
+  app.patch("/api/marchmadness/admin/games/:id", requireMarchmadnessAdmin, async (req, res) => {
+    try {
+      const result = updateMarchmadnessGameSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ message: result.error.errors[0].message });
+      }
+
+      const game = await storage.mm_updateGame(req.params.id, result.data);
+      if (!game) {
+        return res.status(404).json({ message: "Game not found" });
+      }
+      res.json(game);
+    } catch (error) {
+      console.error("Admin update game error:", error);
+      res.status(500).json({ message: "Failed to update game" });
+    }
+  });
+
+  app.delete("/api/marchmadness/admin/games/:id", requireMarchmadnessAdmin, async (req, res) => {
+    try {
+      await storage.mm_deleteGame(req.params.id);
+      res.json({ message: "Game deleted" });
+    } catch (error) {
+      console.error("Admin delete game error:", error);
+      res.status(500).json({ message: "Failed to delete game" });
     }
   });
 

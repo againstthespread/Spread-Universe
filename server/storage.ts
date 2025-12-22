@@ -4,16 +4,32 @@ import {
   passwordResetCodes, 
   crowdlineGames, 
   crowdlinePredictions,
+  marchmadnessTeams,
+  marchmadnessRounds,
+  marchmadnessGames,
+  marchmadnessPicks,
   type User, 
   type InsertUser, 
   type PasswordResetCode,
   type CrowdlineGame,
   type InsertCrowdlineGame,
   type CrowdlinePrediction,
-  type CrowdlineGameWithStats
+  type CrowdlineGameWithStats,
+  type MarchmadnessTeam,
+  type InsertMarchmadnessTeam,
+  type MarchmadnessRound,
+  type InsertMarchmadnessRound,
+  type MarchmadnessGame,
+  type InsertMarchmadnessGame,
+  type UpdateMarchmadnessGame,
+  type MarchmadnessPick,
+  type InsertMarchmadnessPick,
+  type MarchmadnessGameWithTeams,
+  type MarchmadnessLeaderboardEntry,
+  type MarchmadnessUserStats,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, gt, sql, desc } from "drizzle-orm";
+import { eq, and, gt, gte, sql, desc, asc } from "drizzle-orm";
 
 export type CrowdlineLeaderboardEntry = {
   visitorId: string;
@@ -46,6 +62,44 @@ export interface IStorage {
   crowdline_createPrediction(prediction: { visitorId: string; gameId: string; homeScore: number; awayScore: number }): Promise<CrowdlinePrediction>;
   crowdline_updatePrediction(userId: string, gameId: string, homeScore: number, awayScore: number): Promise<CrowdlinePrediction>;
   crowdline_getLeaderboard(): Promise<CrowdlineLeaderboardEntry[]>;
+  
+  // MarchMadness Team methods
+  mm_getTeams(): Promise<MarchmadnessTeam[]>;
+  mm_getTeam(id: string): Promise<MarchmadnessTeam | undefined>;
+  mm_getTeamByName(name: string): Promise<MarchmadnessTeam | undefined>;
+  mm_createTeam(team: InsertMarchmadnessTeam): Promise<MarchmadnessTeam>;
+  mm_updateTeam(id: string, data: Partial<InsertMarchmadnessTeam>): Promise<MarchmadnessTeam | undefined>;
+  
+  // MarchMadness Round methods
+  mm_getRounds(): Promise<MarchmadnessRound[]>;
+  mm_getRound(id: string): Promise<MarchmadnessRound | undefined>;
+  mm_getRoundByName(name: string): Promise<MarchmadnessRound | undefined>;
+  mm_createRound(round: InsertMarchmadnessRound): Promise<MarchmadnessRound>;
+  
+  // MarchMadness Game methods
+  mm_getGame(id: string): Promise<MarchmadnessGame | undefined>;
+  mm_createGame(game: InsertMarchmadnessGame): Promise<MarchmadnessGame>;
+  mm_updateGame(id: string, data: UpdateMarchmadnessGame): Promise<MarchmadnessGame | undefined>;
+  mm_deleteGame(id: string): Promise<void>;
+  mm_getGamesByRound(roundId: string): Promise<MarchmadnessGame[]>;
+  mm_getGameWithTeams(id: string): Promise<MarchmadnessGameWithTeams | undefined>;
+  mm_getGamesByRoundWithTeams(roundId: string, userId?: string): Promise<MarchmadnessGameWithTeams[]>;
+  mm_getUpcomingGames(userId?: string): Promise<MarchmadnessGameWithTeams[]>;
+  
+  // MarchMadness Pick methods
+  mm_getPick(id: string): Promise<MarchmadnessPick | undefined>;
+  mm_getPickByUserAndGame(userId: string, gameId: string): Promise<MarchmadnessPick | undefined>;
+  mm_createPick(pick: InsertMarchmadnessPick & { visitorId: string }): Promise<MarchmadnessPick>;
+  mm_updatePick(id: string, pickedTeamId: string): Promise<MarchmadnessPick | undefined>;
+  mm_deletePick(id: string): Promise<void>;
+  mm_getPicksByUser(userId: string): Promise<MarchmadnessPick[]>;
+  
+  // MarchMadness Leaderboard
+  mm_getLeaderboard(): Promise<MarchmadnessLeaderboardEntry[]>;
+  mm_getUserStats(userId: string): Promise<MarchmadnessUserStats | undefined>;
+  
+  // MarchMadness initialization
+  mm_initializeRounds(): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -269,6 +323,246 @@ export class DatabaseStorage implements IStorage {
     }
     
     return leaderboard.sort((a, b) => b.totalPoints - a.totalPoints);
+  }
+
+  // MarchMadness Team methods
+  async mm_getTeams(): Promise<MarchmadnessTeam[]> {
+    return await db.select().from(marchmadnessTeams).orderBy(marchmadnessTeams.name);
+  }
+
+  async mm_getTeam(id: string): Promise<MarchmadnessTeam | undefined> {
+    const [team] = await db.select().from(marchmadnessTeams).where(eq(marchmadnessTeams.id, id));
+    return team || undefined;
+  }
+
+  async mm_getTeamByName(name: string): Promise<MarchmadnessTeam | undefined> {
+    const [team] = await db.select().from(marchmadnessTeams).where(eq(marchmadnessTeams.name, name));
+    return team || undefined;
+  }
+
+  async mm_createTeam(team: InsertMarchmadnessTeam): Promise<MarchmadnessTeam> {
+    const [newTeam] = await db.insert(marchmadnessTeams).values(team).returning();
+    return newTeam;
+  }
+
+  async mm_updateTeam(id: string, data: Partial<InsertMarchmadnessTeam>): Promise<MarchmadnessTeam | undefined> {
+    const [team] = await db.update(marchmadnessTeams).set(data).where(eq(marchmadnessTeams.id, id)).returning();
+    return team || undefined;
+  }
+
+  // MarchMadness Round methods
+  async mm_getRounds(): Promise<MarchmadnessRound[]> {
+    return await db.select().from(marchmadnessRounds).orderBy(asc(marchmadnessRounds.order));
+  }
+
+  async mm_getRound(id: string): Promise<MarchmadnessRound | undefined> {
+    const [round] = await db.select().from(marchmadnessRounds).where(eq(marchmadnessRounds.id, id));
+    return round || undefined;
+  }
+
+  async mm_getRoundByName(name: string): Promise<MarchmadnessRound | undefined> {
+    const [round] = await db.select().from(marchmadnessRounds).where(eq(marchmadnessRounds.name, name));
+    return round || undefined;
+  }
+
+  async mm_createRound(round: InsertMarchmadnessRound): Promise<MarchmadnessRound> {
+    const [newRound] = await db.insert(marchmadnessRounds).values(round).returning();
+    return newRound;
+  }
+
+  // MarchMadness Game methods
+  async mm_getGame(id: string): Promise<MarchmadnessGame | undefined> {
+    const [game] = await db.select().from(marchmadnessGames).where(eq(marchmadnessGames.id, id));
+    return game || undefined;
+  }
+
+  async mm_createGame(game: InsertMarchmadnessGame): Promise<MarchmadnessGame> {
+    const [newGame] = await db.insert(marchmadnessGames).values(game).returning();
+    return newGame;
+  }
+
+  async mm_updateGame(id: string, data: UpdateMarchmadnessGame): Promise<MarchmadnessGame | undefined> {
+    const [game] = await db.update(marchmadnessGames).set(data).where(eq(marchmadnessGames.id, id)).returning();
+    return game || undefined;
+  }
+
+  async mm_deleteGame(id: string): Promise<void> {
+    await db.delete(marchmadnessGames).where(eq(marchmadnessGames.id, id));
+  }
+
+  async mm_getGamesByRound(roundId: string): Promise<MarchmadnessGame[]> {
+    return await db.select().from(marchmadnessGames).where(eq(marchmadnessGames.roundId, roundId)).orderBy(marchmadnessGames.startTime);
+  }
+
+  async mm_getGameWithTeams(id: string): Promise<MarchmadnessGameWithTeams | undefined> {
+    const [game] = await db.select().from(marchmadnessGames).where(eq(marchmadnessGames.id, id));
+    if (!game) return undefined;
+
+    const [homeTeam] = await db.select().from(marchmadnessTeams).where(eq(marchmadnessTeams.id, game.homeTeamId));
+    const [awayTeam] = await db.select().from(marchmadnessTeams).where(eq(marchmadnessTeams.id, game.awayTeamId));
+    const [round] = await db.select().from(marchmadnessRounds).where(eq(marchmadnessRounds.id, game.roundId));
+
+    if (!homeTeam || !awayTeam || !round) return undefined;
+
+    return { ...game, homeTeam, awayTeam, round };
+  }
+
+  async mm_getGamesByRoundWithTeams(roundId: string, userId?: string): Promise<MarchmadnessGameWithTeams[]> {
+    const games = await db.select().from(marchmadnessGames).where(eq(marchmadnessGames.roundId, roundId)).orderBy(marchmadnessGames.startTime);
+    const result: MarchmadnessGameWithTeams[] = [];
+
+    for (const game of games) {
+      const [homeTeam] = await db.select().from(marchmadnessTeams).where(eq(marchmadnessTeams.id, game.homeTeamId));
+      const [awayTeam] = await db.select().from(marchmadnessTeams).where(eq(marchmadnessTeams.id, game.awayTeamId));
+      const [round] = await db.select().from(marchmadnessRounds).where(eq(marchmadnessRounds.id, game.roundId));
+
+      if (homeTeam && awayTeam && round) {
+        let userPick: MarchmadnessPick | null = null;
+        if (userId) {
+          const [pick] = await db.select().from(marchmadnessPicks).where(and(eq(marchmadnessPicks.visitorId, userId), eq(marchmadnessPicks.gameId, game.id)));
+          userPick = pick || null;
+        }
+        result.push({ ...game, homeTeam, awayTeam, round, userPick });
+      }
+    }
+
+    return result;
+  }
+
+  async mm_getUpcomingGames(userId?: string): Promise<MarchmadnessGameWithTeams[]> {
+    const games = await db.select().from(marchmadnessGames).where(eq(marchmadnessGames.status, "upcoming")).orderBy(marchmadnessGames.startTime);
+    const result: MarchmadnessGameWithTeams[] = [];
+
+    for (const game of games) {
+      const [homeTeam] = await db.select().from(marchmadnessTeams).where(eq(marchmadnessTeams.id, game.homeTeamId));
+      const [awayTeam] = await db.select().from(marchmadnessTeams).where(eq(marchmadnessTeams.id, game.awayTeamId));
+      const [round] = await db.select().from(marchmadnessRounds).where(eq(marchmadnessRounds.id, game.roundId));
+
+      if (homeTeam && awayTeam && round) {
+        let userPick: MarchmadnessPick | null = null;
+        if (userId) {
+          const [pick] = await db.select().from(marchmadnessPicks).where(and(eq(marchmadnessPicks.visitorId, userId), eq(marchmadnessPicks.gameId, game.id)));
+          userPick = pick || null;
+        }
+        result.push({ ...game, homeTeam, awayTeam, round, userPick });
+      }
+    }
+
+    return result;
+  }
+
+  // MarchMadness Pick methods
+  async mm_getPick(id: string): Promise<MarchmadnessPick | undefined> {
+    const [pick] = await db.select().from(marchmadnessPicks).where(eq(marchmadnessPicks.id, id));
+    return pick || undefined;
+  }
+
+  async mm_getPickByUserAndGame(userId: string, gameId: string): Promise<MarchmadnessPick | undefined> {
+    const [pick] = await db.select().from(marchmadnessPicks).where(and(eq(marchmadnessPicks.visitorId, userId), eq(marchmadnessPicks.gameId, gameId)));
+    return pick || undefined;
+  }
+
+  async mm_createPick(pick: InsertMarchmadnessPick & { visitorId: string }): Promise<MarchmadnessPick> {
+    const [newPick] = await db.insert(marchmadnessPicks).values(pick).returning();
+    return newPick;
+  }
+
+  async mm_updatePick(id: string, pickedTeamId: string): Promise<MarchmadnessPick | undefined> {
+    const [pick] = await db.update(marchmadnessPicks).set({ pickedTeamId }).where(eq(marchmadnessPicks.id, id)).returning();
+    return pick || undefined;
+  }
+
+  async mm_deletePick(id: string): Promise<void> {
+    await db.delete(marchmadnessPicks).where(eq(marchmadnessPicks.id, id));
+  }
+
+  async mm_getPicksByUser(userId: string): Promise<MarchmadnessPick[]> {
+    return await db.select().from(marchmadnessPicks).where(eq(marchmadnessPicks.visitorId, userId));
+  }
+
+  // MarchMadness Leaderboard
+  async mm_getLeaderboard(): Promise<MarchmadnessLeaderboardEntry[]> {
+    const allUsers = await db.select().from(users);
+    const allPicks = await db.select().from(marchmadnessPicks);
+    
+    const leaderboard: MarchmadnessLeaderboardEntry[] = [];
+
+    for (const user of allUsers) {
+      const userPicks = allPicks.filter(p => p.visitorId === user.id);
+      if (userPicks.length === 0) continue;
+
+      const correctPicks = userPicks.filter(p => p.isCorrect === true).length;
+      const totalPoints = userPicks.reduce((sum, p) => sum + (p.pointsEarned || 0), 0);
+
+      leaderboard.push({
+        visitorId: user.id,
+        username: user.username,
+        totalPoints,
+        correctPicks,
+        totalPicks: userPicks.length,
+        winPercentage: userPicks.length > 0 ? Math.round((correctPicks / userPicks.length) * 100) : 0,
+      });
+    }
+
+    return leaderboard.sort((a, b) => b.totalPoints - a.totalPoints);
+  }
+
+  async mm_getUserStats(userId: string): Promise<MarchmadnessUserStats | undefined> {
+    const user = await this.getUser(userId);
+    if (!user) return undefined;
+
+    const userPicks = await db.select().from(marchmadnessPicks).where(eq(marchmadnessPicks.visitorId, userId));
+    const rounds = await this.mm_getRounds();
+    const leaderboard = await this.mm_getLeaderboard();
+
+    const correctPicks = userPicks.filter(p => p.isCorrect === true).length;
+    const totalPoints = userPicks.reduce((sum, p) => sum + (p.pointsEarned || 0), 0);
+    const rank = leaderboard.findIndex(e => e.visitorId === userId) + 1;
+
+    const roundStats = [];
+    for (const round of rounds) {
+      const games = await this.mm_getGamesByRound(round.id);
+      const gameIds = new Set(games.map(g => g.id));
+      const roundPicks = userPicks.filter(p => gameIds.has(p.gameId));
+      const roundCorrect = roundPicks.filter(p => p.isCorrect === true).length;
+      const roundPoints = roundPicks.reduce((sum, p) => sum + (p.pointsEarned || 0), 0);
+
+      roundStats.push({
+        roundId: round.id,
+        roundName: round.displayName,
+        correctPicks: roundCorrect,
+        totalPicks: roundPicks.length,
+        pointsEarned: roundPoints,
+      });
+    }
+
+    return {
+      totalPoints,
+      correctPicks,
+      totalPicks: userPicks.length,
+      winPercentage: userPicks.length > 0 ? Math.round((correctPicks / userPicks.length) * 100) : 0,
+      rank: rank || leaderboard.length + 1,
+      roundStats,
+    };
+  }
+
+  // Initialize default rounds
+  async mm_initializeRounds(): Promise<void> {
+    const existingRounds = await this.mm_getRounds();
+    if (existingRounds.length > 0) return;
+
+    const defaultRounds = [
+      { name: "round64", displayName: "Round of 64", pointValue: 10, order: 1 },
+      { name: "round32", displayName: "Round of 32", pointValue: 20, order: 2 },
+      { name: "sweet16", displayName: "Sweet 16", pointValue: 40, order: 3 },
+      { name: "elite8", displayName: "Elite 8", pointValue: 80, order: 4 },
+      { name: "final4", displayName: "Final Four", pointValue: 160, order: 5 },
+      { name: "championship", displayName: "Championship", pointValue: 320, order: 6 },
+    ];
+
+    for (const round of defaultRounds) {
+      await this.mm_createRound(round);
+    }
   }
 }
 

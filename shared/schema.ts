@@ -135,6 +135,135 @@ export type Platform = {
   url: string;
 };
 
+// MarchMadness Tables
+export const marchmadnessTeams = pgTable("marchmadness_teams", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  shortName: text("short_name"),
+  mascot: text("mascot"),
+  logoUrl: text("logo_url"),
+  seed: integer("seed"),
+  record: text("record"),
+  conference: text("conference"),
+});
+
+export const marchmadnessRounds = pgTable("marchmadness_rounds", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull().unique(),
+  displayName: text("display_name").notNull(),
+  pointValue: integer("point_value").notNull(),
+  order: integer("order").notNull(),
+});
+
+export const marchmadnessGames = pgTable("marchmadness_games", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  roundId: varchar("round_id").notNull().references(() => marchmadnessRounds.id, { onDelete: "cascade" }),
+  homeTeamId: varchar("home_team_id").notNull().references(() => marchmadnessTeams.id, { onDelete: "cascade" }),
+  awayTeamId: varchar("away_team_id").notNull().references(() => marchmadnessTeams.id, { onDelete: "cascade" }),
+  spread: text("spread").notNull(),
+  startTime: timestamp("start_time").notNull(),
+  region: text("region"),
+  gameNumber: integer("game_number"),
+  homeScore: integer("home_score"),
+  awayScore: integer("away_score"),
+  status: text("status").notNull().default("upcoming"),
+  winningTeamId: varchar("winning_team_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const marchmadnessPicks = pgTable("marchmadness_picks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  visitorId: varchar("visitor_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  gameId: varchar("game_id").notNull().references(() => marchmadnessGames.id, { onDelete: "cascade" }),
+  pickedTeamId: varchar("picked_team_id").notNull().references(() => marchmadnessTeams.id, { onDelete: "cascade" }),
+  isCorrect: boolean("is_correct"),
+  pointsEarned: integer("points_earned"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  visitorGameUnique: unique("mm_visitor_game_unique").on(table.visitorId, table.gameId),
+}));
+
+// MarchMadness Insert Schemas
+export const insertMarchmadnessTeamSchema = createInsertSchema(marchmadnessTeams).omit({
+  id: true,
+});
+
+export const insertMarchmadnessRoundSchema = createInsertSchema(marchmadnessRounds).omit({
+  id: true,
+});
+
+export const insertMarchmadnessGameSchema = createInsertSchema(marchmadnessGames).omit({
+  id: true,
+  createdAt: true,
+  homeScore: true,
+  awayScore: true,
+  winningTeamId: true,
+}).extend({
+  startTime: z.string().or(z.date()).transform((val) => new Date(val)),
+});
+
+export const updateMarchmadnessGameSchema = z.object({
+  spread: z.string().optional(),
+  startTime: z.string().or(z.date()).transform((val) => new Date(val)).optional(),
+  region: z.string().optional(),
+  gameNumber: z.number().int().optional(),
+  homeScore: z.number().int().optional(),
+  awayScore: z.number().int().optional(),
+  status: z.string().optional(),
+  winningTeamId: z.string().optional(),
+});
+
+export const insertMarchmadnessPickSchema = createInsertSchema(marchmadnessPicks).omit({
+  id: true,
+  createdAt: true,
+  visitorId: true,
+  isCorrect: true,
+  pointsEarned: true,
+});
+
+// MarchMadness Types
+export type MarchmadnessTeam = typeof marchmadnessTeams.$inferSelect;
+export type InsertMarchmadnessTeam = z.infer<typeof insertMarchmadnessTeamSchema>;
+export type MarchmadnessRound = typeof marchmadnessRounds.$inferSelect;
+export type InsertMarchmadnessRound = z.infer<typeof insertMarchmadnessRoundSchema>;
+export type MarchmadnessGame = typeof marchmadnessGames.$inferSelect;
+export type InsertMarchmadnessGame = z.infer<typeof insertMarchmadnessGameSchema>;
+export type UpdateMarchmadnessGame = z.infer<typeof updateMarchmadnessGameSchema>;
+export type MarchmadnessPick = typeof marchmadnessPicks.$inferSelect;
+export type InsertMarchmadnessPick = z.infer<typeof insertMarchmadnessPickSchema>;
+
+// MarchMadness Composite Types
+export type MarchmadnessGameWithTeams = MarchmadnessGame & {
+  homeTeam: MarchmadnessTeam;
+  awayTeam: MarchmadnessTeam;
+  round: MarchmadnessRound;
+  userPick?: MarchmadnessPick | null;
+};
+
+export type MarchmadnessLeaderboardEntry = {
+  visitorId: string;
+  username: string;
+  totalPoints: number;
+  correctPicks: number;
+  totalPicks: number;
+  winPercentage: number;
+};
+
+export type MarchmadnessUserStats = {
+  totalPoints: number;
+  correctPicks: number;
+  totalPicks: number;
+  winPercentage: number;
+  rank: number;
+  roundStats: {
+    roundId: string;
+    roundName: string;
+    correctPicks: number;
+    totalPicks: number;
+    pointsEarned: number;
+  }[];
+};
+
 export const platforms: Platform[] = [
   {
     id: "crowdline",
