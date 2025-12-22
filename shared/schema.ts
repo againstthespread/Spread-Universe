@@ -8,6 +8,7 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   username: text("username").notNull(),
   password: text("password").notNull(),
+  isAdmin: boolean("is_admin").default(false),
 });
 
 export const passwordResetCodes = pgTable("password_reset_codes", {

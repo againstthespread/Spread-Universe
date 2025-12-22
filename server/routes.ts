@@ -49,6 +49,17 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+async function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  if (!req.session.userId) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+  const user = await storage.getUser(req.session.userId);
+  if (!user || !user.isAdmin) {
+    return res.status(403).json({ message: "Forbidden - Admin access required" });
+  }
+  next();
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -302,6 +313,30 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/admin/init", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      if (user.username !== "pdeluc99") {
+        return res.status(403).json({ message: "Not authorized to initialize admin" });
+      }
+
+      const updatedUser = await storage.setUserAdmin(user.id, true);
+      if (!updatedUser) {
+        return res.status(500).json({ message: "Failed to set admin status" });
+      }
+
+      const { password: _, ...safeUser } = updatedUser;
+      res.json({ user: safeUser });
+    } catch (error) {
+      console.error("Admin init error:", error);
+      res.status(500).json({ message: "Failed to initialize admin" });
+    }
+  });
+
   // CrowdLine Routes
   app.get("/api/crowdline/games", requireAuth, async (req, res) => {
     try {
@@ -357,18 +392,7 @@ export async function registerRoutes(
   });
 
   // CrowdLine Admin Routes
-  const requireCrowdlineAdmin = async (req: Request, res: Response, next: NextFunction) => {
-    if (!req.session.userId) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-    const user = await storage.getUser(req.session.userId);
-    if (!user || user.email !== "admin@crowdline.com") {
-      return res.status(403).json({ message: "Forbidden - Admin access required" });
-    }
-    next();
-  };
-
-  app.get("/api/crowdline/admin/games", requireCrowdlineAdmin, async (req, res) => {
+  app.get("/api/crowdline/admin/games", requireAdmin, async (req, res) => {
     try {
       const games = await storage.crowdline_getAllGames();
       res.json(games);
@@ -378,7 +402,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/crowdline/admin/games", requireCrowdlineAdmin, async (req, res) => {
+  app.post("/api/crowdline/admin/games", requireAdmin, async (req, res) => {
     try {
       const result = insertCrowdlineGameSchema.safeParse(req.body);
       if (!result.success) {
@@ -393,7 +417,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/crowdline/admin/games/:id", requireCrowdlineAdmin, async (req, res) => {
+  app.delete("/api/crowdline/admin/games/:id", requireAdmin, async (req, res) => {
     try {
       await storage.crowdline_deleteGame(req.params.id);
       res.json({ message: "Game deleted" });
@@ -403,7 +427,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/crowdline/admin/games/:id/result", requireCrowdlineAdmin, async (req, res) => {
+  app.patch("/api/crowdline/admin/games/:id/result", requireAdmin, async (req, res) => {
     try {
       const result = updateCrowdlineGameResultSchema.safeParse(req.body);
       if (!result.success) {
@@ -560,18 +584,7 @@ export async function registerRoutes(
   });
 
   // MarchMadness Admin Routes
-  const requireMarchmadnessAdmin = async (req: Request, res: Response, next: NextFunction) => {
-    if (!req.session.userId) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-    const user = await storage.getUser(req.session.userId);
-    if (!user || (user.email !== "admin@crowdline.com" && user.email !== "admin@marchmadness.com")) {
-      return res.status(403).json({ message: "Forbidden - Admin access required" });
-    }
-    next();
-  };
-
-  app.get("/api/marchmadness/admin/teams", requireMarchmadnessAdmin, async (req, res) => {
+  app.get("/api/marchmadness/admin/teams", requireAdmin, async (req, res) => {
     try {
       const teams = await storage.mm_getTeams();
       res.json(teams);
@@ -581,7 +594,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/marchmadness/admin/teams", requireMarchmadnessAdmin, async (req, res) => {
+  app.post("/api/marchmadness/admin/teams", requireAdmin, async (req, res) => {
     try {
       const result = insertMarchmadnessTeamSchema.safeParse(req.body);
       if (!result.success) {
@@ -596,7 +609,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/marchmadness/admin/teams/:id", requireMarchmadnessAdmin, async (req, res) => {
+  app.patch("/api/marchmadness/admin/teams/:id", requireAdmin, async (req, res) => {
     try {
       const team = await storage.mm_updateTeam(req.params.id, req.body);
       if (!team) {
@@ -609,7 +622,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/marchmadness/admin/rounds", requireMarchmadnessAdmin, async (req, res) => {
+  app.get("/api/marchmadness/admin/rounds", requireAdmin, async (req, res) => {
     try {
       const rounds = await storage.mm_getRounds();
       res.json(rounds);
@@ -619,7 +632,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/marchmadness/admin/games", requireMarchmadnessAdmin, async (req, res) => {
+  app.get("/api/marchmadness/admin/games", requireAdmin, async (req, res) => {
     try {
       const { roundId } = req.query;
       if (roundId && typeof roundId === "string") {
@@ -634,7 +647,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/marchmadness/admin/games", requireMarchmadnessAdmin, async (req, res) => {
+  app.post("/api/marchmadness/admin/games", requireAdmin, async (req, res) => {
     try {
       const result = insertMarchmadnessGameSchema.safeParse(req.body);
       if (!result.success) {
@@ -649,7 +662,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/marchmadness/admin/games/:id", requireMarchmadnessAdmin, async (req, res) => {
+  app.patch("/api/marchmadness/admin/games/:id", requireAdmin, async (req, res) => {
     try {
       const result = updateMarchmadnessGameSchema.safeParse(req.body);
       if (!result.success) {
@@ -667,7 +680,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/marchmadness/admin/games/:id", requireMarchmadnessAdmin, async (req, res) => {
+  app.delete("/api/marchmadness/admin/games/:id", requireAdmin, async (req, res) => {
     try {
       await storage.mm_deleteGame(req.params.id);
       res.json({ message: "Game deleted" });
@@ -948,13 +961,8 @@ export async function registerRoutes(
   });
 
   // Admin routes for games
-  app.post("/api/gambling-league/admin/games", requireAuth, async (req, res) => {
+  app.post("/api/gambling-league/admin/games", requireAdmin, async (req, res) => {
     try {
-      const user = await storage.getUser(req.session.userId!);
-      if (!user?.isAdmin) {
-        return res.status(403).json({ message: "Admin access required" });
-      }
-      
       const result = insertGamblingLeagueGameSchema.safeParse(req.body);
       if (!result.success) {
         return res.status(400).json({ message: result.error.errors[0].message });
@@ -968,13 +976,8 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/gambling-league/admin/games/:id/result", requireAuth, async (req, res) => {
+  app.patch("/api/gambling-league/admin/games/:id/result", requireAdmin, async (req, res) => {
     try {
-      const user = await storage.getUser(req.session.userId!);
-      if (!user?.isAdmin) {
-        return res.status(403).json({ message: "Admin access required" });
-      }
-      
       const result = updateGamblingLeagueGameResultSchema.safeParse(req.body);
       if (!result.success) {
         return res.status(400).json({ message: result.error.errors[0].message });
@@ -991,13 +994,8 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/gambling-league/admin/leagues/:id/week", requireAuth, async (req, res) => {
+  app.patch("/api/gambling-league/admin/leagues/:id/week", requireAdmin, async (req, res) => {
     try {
-      const user = await storage.getUser(req.session.userId!);
-      if (!user?.isAdmin) {
-        return res.status(403).json({ message: "Admin access required" });
-      }
-      
       const { week } = req.body;
       if (typeof week !== 'number' || week < 1) {
         return res.status(400).json({ message: "Invalid week" });
@@ -1119,18 +1117,7 @@ export async function registerRoutes(
   });
 
   // PostseasonATS Admin Routes
-  const requirePostseasonAdmin = async (req: Request, res: Response, next: NextFunction) => {
-    if (!req.session.userId) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-    const user = await storage.getUser(req.session.userId);
-    if (!user || (user.email !== "admin@crowdline.com" && user.email !== "admin@postseason.com")) {
-      return res.status(403).json({ message: "Forbidden - Admin access required" });
-    }
-    next();
-  };
-
-  app.get("/api/postseason/admin/games", requirePostseasonAdmin, async (req, res) => {
+  app.get("/api/postseason/admin/games", requireAdmin, async (req, res) => {
     try {
       const games = await storage.ps_getGames();
       res.json(games);
@@ -1140,7 +1127,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/postseason/admin/games", requirePostseasonAdmin, async (req, res) => {
+  app.post("/api/postseason/admin/games", requireAdmin, async (req, res) => {
     try {
       const result = insertPostseasonGameSchema.safeParse(req.body);
       if (!result.success) {
@@ -1155,7 +1142,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/postseason/admin/games/:id", requirePostseasonAdmin, async (req, res) => {
+  app.patch("/api/postseason/admin/games/:id", requireAdmin, async (req, res) => {
     try {
       const game = await storage.ps_updateGame(req.params.id, req.body);
       if (!game) {
@@ -1168,7 +1155,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/postseason/admin/games/:id", requirePostseasonAdmin, async (req, res) => {
+  app.delete("/api/postseason/admin/games/:id", requireAdmin, async (req, res) => {
     try {
       await storage.ps_deleteGame(req.params.id);
       res.json({ message: "Game deleted" });
@@ -1178,7 +1165,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/postseason/admin/games/:id/result", requirePostseasonAdmin, async (req, res) => {
+  app.patch("/api/postseason/admin/games/:id/result", requireAdmin, async (req, res) => {
     try {
       const result = updatePostseasonGameResultSchema.safeParse(req.body);
       if (!result.success) {

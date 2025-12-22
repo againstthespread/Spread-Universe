@@ -75,8 +75,10 @@ export type CrowdlineLeaderboardEntry = {
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
+  getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, data: Partial<Omit<User, "id">>): Promise<User | undefined>;
+  setUserAdmin(userId: string, isAdmin: boolean): Promise<User | undefined>;
   
   createPasswordResetCode(userId: string, code: string, expiresAt: Date): Promise<PasswordResetCode>;
   getPasswordResetCode(userId: string, code: string): Promise<PasswordResetCode | undefined>;
@@ -194,6 +196,11 @@ export class DatabaseStorage implements IStorage {
     return user || undefined;
   }
 
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user || undefined;
+  }
+
   async createUser(insertUser: InsertUser): Promise<User> {
     const [user] = await db
       .insert(users)
@@ -207,6 +214,15 @@ export class DatabaseStorage implements IStorage {
       .update(users)
       .set(data)
       .where(eq(users.id, id))
+      .returning();
+    return user || undefined;
+  }
+
+  async setUserAdmin(userId: string, isAdmin: boolean): Promise<User | undefined> {
+    const [user] = await db
+      .update(users)
+      .set({ isAdmin })
+      .where(eq(users.id, userId))
       .returning();
     return user || undefined;
   }
