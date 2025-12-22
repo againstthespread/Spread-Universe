@@ -173,5 +173,18 @@ The application follows documented design guidelines in `design_guidelines.md`:
 - Session persistence verified across page reloads via session cookies
 
 ### Admin Access
-- Admin users: admin@crowdline.com, admin@marchmadness.com, admin@postseason.com
-- Admin privileges required for game management and results entry
+- Admin is controlled via `isAdmin` boolean field on user accounts
+- User `pdeluc99` is designated as the admin user
+- Admin users can access the unified admin panel at `/admin`
+- The header shows an "Admin Panel" link for admin users only
+- 19 admin routes are protected with `requireAdmin` middleware
+- Admin privileges required for game management and results entry across all platforms
+
+### Unified Admin Panel
+Located at `/admin`, the unified admin panel consolidates all platform management into a single interface:
+- **Crowdline**: Create/delete games, enter final scores
+- **March Madness ATS**: Manage teams, rounds, games, and tournament results
+- **Postseason ATS**: Create playoff games by round, enter results
+- **Gambling League**: Add weekly games, enter results, reset leagues
+- **FantasyStream**: Placeholder (backend tooling pending)
+- **Football Weather**: Placeholder (backend tooling pending)
