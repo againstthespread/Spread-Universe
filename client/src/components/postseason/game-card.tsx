@@ -101,7 +101,7 @@ export function GameCard({ game }: GameCardProps) {
         <div className="space-y-2">
           {getTeamButton(game.awayTeam, false)}
           <div className="flex items-center justify-center">
-            <span className="text-xs text-muted-foreground">@ {game.homeTeam}</span>
+            <span className="text-xs text-muted-foreground">@</span>
           </div>
           {getTeamButton(game.homeTeam, true)}
         </div>
