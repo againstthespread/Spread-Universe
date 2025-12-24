@@ -66,7 +66,7 @@ export function GameCard({ game }: GameCardProps) {
         data-testid={`button-pick-${isHome ? "home" : "away"}-${game.id}`}
       >
         <div className="flex items-center gap-2">
-          <span className="font-semibold">{teamName}</span>
+          <span className="font-semibold text-foreground">{teamName}</span>
           {isFavored && <span className="text-xs text-muted-foreground">({parseFloat(game.spread) > 0 ? "-" : "+"}{Math.abs(parseFloat(game.spread))})</span>}
           {isWinner && <Trophy className="h-4 w-4 text-yellow-500" />}
         </div>
