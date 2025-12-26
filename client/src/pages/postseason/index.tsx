@@ -34,7 +34,7 @@ export default function PostseasonDashboard() {
     <div className="container max-w-5xl mx-auto py-8 px-4">
       <div className="flex items-center justify-between gap-4 flex-wrap mb-8">
         <div>
-          <h1 className="text-3xl font-bold" data-testid="text-postseason-title">PostseasonATS</h1>
+          <h1 className="text-3xl font-bold" data-testid="text-postseason-title">Postseason ATS</h1>
           <p className="text-muted-foreground">Pick NFL playoff games against the spread</p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -60,7 +60,6 @@ export default function PostseasonDashboard() {
           )}
         </div>
       </div>
-
       {userStats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <Card>
@@ -89,7 +88,6 @@ export default function PostseasonDashboard() {
           </Card>
         </div>
       )}
-
       {gamesLoading ? (
         <div className="space-y-4">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -117,7 +115,6 @@ export default function PostseasonDashboard() {
           )}
         </div>
       )}
-
       <div className="mt-8 text-sm text-muted-foreground text-center">
         <p>Scoring: Wild Card (125pts) | Divisional (250pts) | Conference (500pts) | Super Bowl (1000pts)</p>
       </div>
