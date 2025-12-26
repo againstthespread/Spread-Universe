@@ -38,7 +38,8 @@ export default function Home() {
             
             <h1 className="text-3xl md:text-5xl font-bold tracking-tight mb-4">
               One Account,{" "}
-              <span className="text-primary">Six Platforms</span>
+              <span className="text-primary">Against the Spread
+</span>
             </h1>
             
             <p className="text-base md:text-lg text-muted-foreground mb-6 max-w-2xl mx-auto">
