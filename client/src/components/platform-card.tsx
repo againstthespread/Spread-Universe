@@ -5,6 +5,7 @@ import crowdlineLogo from "@assets/generated_images/plus_minus_sports_logo.png";
 import marchMadnessLogo from "@assets/generated_images/simple_basketball_icon_logo.png";
 import fantasyStreamLogo from "@assets/generated_images/referee_touchdown_signal_icon.png";
 import postseasonLogo from "@assets/generated_images/lombardi_trophy_icon.png";
+import gamblingLeagueLogo from "@assets/generated_images/green_red_equals_sign_icon.png";
 
 const iconMap: Record<string, LucideIcon> = {
   Users,
@@ -43,10 +44,7 @@ export function PlatformCard({ platform, onClick }: PlatformCardProps) {
             ) : platform.id === "postseason" ? (
               <img src={postseasonLogo} alt="Postseason ATS" className="h-8 w-8 object-contain" />
             ) : platform.id === "gamblingLeague" ? (
-              <div className="flex flex-col gap-1">
-                <div className="w-6 h-2 bg-green-500 rounded-sm" />
-                <div className="w-6 h-2 bg-red-500 rounded-sm" />
-              </div>
+              <img src={gamblingLeagueLogo} alt="Gambling League" className="h-8 w-8 object-contain" />
             ) : (
               <Icon className="h-6 w-6" />
             )}
