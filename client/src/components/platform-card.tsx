@@ -1,6 +1,7 @@
 import { Users, Trophy, Play, Medal, Star, Cloud, type LucideIcon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import type { Platform } from "@shared/schema";
+import crowdlineLogo from "@assets/generated_images/plus_minus_sports_logo.png";
 
 const iconMap: Record<string, LucideIcon> = {
   Users,
@@ -28,9 +29,13 @@ export function PlatformCard({ platform, onClick }: PlatformCardProps) {
       <CardContent className="p-6">
         <div className="flex items-start gap-4">
           <div
-            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ${platform.color} text-white`}
+            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ${platform.color} text-white overflow-hidden`}
           >
-            <Icon className="h-6 w-6" />
+            {platform.id === "crowdline" ? (
+              <img src={crowdlineLogo} alt="Crowdline" className="h-8 w-8 object-contain" />
+            ) : (
+              <Icon className="h-6 w-6" />
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <h3 className="font-semibold text-lg leading-tight mb-1">
