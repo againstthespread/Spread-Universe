@@ -2,6 +2,7 @@ import { Users, Trophy, Play, Medal, Star, Cloud, type LucideIcon } from "lucide
 import { Card, CardContent } from "@/components/ui/card";
 import type { Platform } from "@shared/schema";
 import crowdlineLogo from "@assets/generated_images/plus_minus_sports_logo.png";
+import marchMadnessLogo from "@assets/generated_images/simple_basketball_icon_logo.png";
 
 const iconMap: Record<string, LucideIcon> = {
   Users,
@@ -33,6 +34,8 @@ export function PlatformCard({ platform, onClick }: PlatformCardProps) {
           >
             {platform.id === "crowdline" ? (
               <img src={crowdlineLogo} alt="Crowdline" className="h-8 w-8 object-contain" />
+            ) : platform.id === "marchmadness" ? (
+              <img src={marchMadnessLogo} alt="March Madness" className="h-8 w-8 object-contain" />
             ) : (
               <Icon className="h-6 w-6" />
             )}
