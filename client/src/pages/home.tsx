@@ -42,9 +42,7 @@ export default function Home() {
 </span>
             </h1>
             
-            <p className="text-base md:text-lg text-muted-foreground mb-6 max-w-2xl mx-auto">
-              Access all your sports betting tools with a single secure login.
-            </p>
+            <p className="text-base md:text-lg text-muted-foreground mb-6 max-w-2xl mx-auto">Access all your competitive gaming tools.</p>
             
             {!user && (
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
