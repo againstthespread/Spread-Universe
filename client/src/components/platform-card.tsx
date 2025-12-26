@@ -43,7 +43,7 @@ export function PlatformCard({ platform, onClick }: PlatformCardProps) {
               <img src={fantasyStreamLogo} alt="FantasyStream" className="h-8 w-8 object-contain" />
             ) : platform.id === "postseason" ? (
               <img src={postseasonLogo} alt="Postseason ATS" className="h-8 w-8 object-contain" />
-            ) : platform.id === "gamblingLeague" ? (
+            ) : platform.id === "gambling-league" ? (
               <img src={gamblingLeagueLogo} alt="Gambling League" className="h-8 w-8 object-contain" />
             ) : (
               <Icon className="h-6 w-6" />
