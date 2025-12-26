@@ -690,74 +690,255 @@ export async function registerRoutes(
     }
   });
 
-  // FantasyStream Routes (Mock data - no database needed)
-  const getMockFantasyStreamGames = (): FantasyStreamGame[] => {
-    return [
-      { id: "game1", homeTeam: "KC", awayTeam: "BUF", homeScore: 24, awayScore: 21, quarter: "Q3", timeRemaining: "8:45", status: "in" },
-      { id: "game2", homeTeam: "SF", awayTeam: "DAL", homeScore: 17, awayScore: 14, quarter: "Q2", timeRemaining: "2:30", status: "in" },
-      { id: "game3", homeTeam: "PHI", awayTeam: "NYG", homeScore: 28, awayScore: 10, quarter: "Q4", timeRemaining: "4:15", status: "in" },
-      { id: "game4", homeTeam: "MIA", awayTeam: "NE", homeScore: 0, awayScore: 0, quarter: "PRE", timeRemaining: "1:00 PM", status: "pre" },
-      { id: "game5", homeTeam: "DEN", awayTeam: "LV", homeScore: 31, awayScore: 24, quarter: "FINAL", timeRemaining: "", status: "post" },
-    ];
-  };
+  // FantasyStream Routes - Real ESPN NFL API integration
+  const ESPN_SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard";
+  const ESPN_SUMMARY_URL = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary";
 
-  const getMockFantasyStreamPlays = (gameId?: string): FantasyStreamPlay[] => {
-    const allPlays: FantasyStreamPlay[] = [
-      { id: "play1", gameId: "game1", team: "KC", quarter: "Q3", timeRemaining: "8:45", down: 1, distance: 10, yardLine: "KC 25", playType: "pass", description: "Pass complete to Travis Kelce", playerName: "P. Mahomes", receiverName: "T. Kelce", yards: 15, timestamp: new Date().toISOString(), isScoring: false, isLive: true },
-      { id: "play2", gameId: "game1", team: "KC", quarter: "Q3", timeRemaining: "8:12", down: 1, distance: 10, yardLine: "KC 40", playType: "rush", description: "Isiah Pacheco up the middle", playerName: "I. Pacheco", yards: 8, timestamp: new Date(Date.now() - 60000).toISOString(), isScoring: false, isLive: false },
-      { id: "play3", gameId: "game2", team: "SF", quarter: "Q2", timeRemaining: "2:30", down: 3, distance: 7, yardLine: "DAL 35", playType: "pass", description: "Pass incomplete intended for Deebo Samuel", playerName: "B. Purdy", receiverName: "D. Samuel", yards: 0, timestamp: new Date(Date.now() - 120000).toISOString(), isScoring: false, isLive: true },
-      { id: "play4", gameId: "game1", team: "BUF", quarter: "Q2", timeRemaining: "14:22", down: 1, distance: 10, yardLine: "BUF 30", playType: "touchdown", description: "Josh Allen rushes for a TOUCHDOWN!", playerName: "J. Allen", yards: 12, timestamp: new Date(Date.now() - 180000).toISOString(), isScoring: true, isLive: false },
-      { id: "play5", gameId: "game3", team: "PHI", quarter: "Q4", timeRemaining: "4:15", down: 2, distance: 5, yardLine: "NYG 45", playType: "pass", description: "Pass complete to A.J. Brown down the sideline", playerName: "J. Hurts", receiverName: "A.J. Brown", yards: 32, timestamp: new Date(Date.now() - 240000).toISOString(), isScoring: false, isLive: true },
-      { id: "play6", gameId: "game2", team: "DAL", quarter: "Q2", timeRemaining: "5:00", down: 4, distance: 1, yardLine: "SF 15", playType: "fieldgoal", description: "Field goal is GOOD from 32 yards", playerName: "B. Aubrey", yards: 0, timestamp: new Date(Date.now() - 300000).toISOString(), isScoring: true, isLive: false },
-      { id: "play7", gameId: "game3", team: "NYG", quarter: "Q3", timeRemaining: "10:30", down: 2, distance: 8, yardLine: "PHI 42", playType: "turnover", description: "INTERCEPTION by Darius Slay!", playerName: "D. Jones", yards: 0, timestamp: new Date(Date.now() - 360000).toISOString(), isScoring: false, isLive: false },
-      { id: "play8", gameId: "game1", team: "KC", quarter: "Q1", timeRemaining: "5:30", down: 1, distance: 10, yardLine: "BUF 8", playType: "touchdown", description: "Patrick Mahomes to Travis Kelce for the TOUCHDOWN!", playerName: "P. Mahomes", receiverName: "T. Kelce", yards: 8, timestamp: new Date(Date.now() - 420000).toISOString(), isScoring: true, isLive: false },
-    ];
-    
-    if (gameId) {
-      return allPlays.filter(play => play.gameId === gameId);
+  async function fetchESPNGames(): Promise<FantasyStreamGame[]> {
+    try {
+      const response = await fetch(ESPN_SCOREBOARD_URL);
+      if (!response.ok) {
+        console.error("ESPN scoreboard API error:", response.status);
+        return [];
+      }
+      const data = await response.json();
+      
+      if (!data.events || !Array.isArray(data.events)) {
+        return [];
+      }
+
+      return data.events.map((event: any) => {
+        const competition = event.competitions?.[0];
+        if (!competition) return null;
+
+        const homeTeamData = competition.competitors?.find((c: any) => c.homeAway === "home");
+        const awayTeamData = competition.competitors?.find((c: any) => c.homeAway === "away");
+        
+        if (!homeTeamData || !awayTeamData) return null;
+
+        const statusType = competition.status?.type?.name || event.status?.type?.name;
+        let status: 'pre' | 'in' | 'post' = 'pre';
+        if (statusType === "STATUS_IN_PROGRESS" || statusType === "STATUS_HALFTIME") {
+          status = 'in';
+        } else if (statusType === "STATUS_FINAL" || statusType === "STATUS_FINAL_OVERTIME") {
+          status = 'post';
+        }
+
+        const period = competition.status?.period || event.status?.period || 0;
+        let quarter = "PRE";
+        if (status === 'in') {
+          if (period === 1) quarter = "1st";
+          else if (period === 2) quarter = "2nd";
+          else if (period === 3) quarter = "3rd";
+          else if (period === 4) quarter = "4th";
+          else if (period > 4) quarter = "OT";
+          if (statusType === "STATUS_HALFTIME") quarter = "HALF";
+        } else if (status === 'post') {
+          quarter = "Final";
+        }
+
+        const displayClock = competition.status?.displayClock || event.status?.displayClock || "--";
+        let timeRemaining = displayClock;
+        if (status === 'pre') {
+          const gameDate = new Date(event.date);
+          timeRemaining = gameDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+        } else if (status === 'post') {
+          timeRemaining = "--";
+        }
+
+        return {
+          id: event.id,
+          homeTeam: homeTeamData.team?.abbreviation || homeTeamData.team?.shortDisplayName || "HOME",
+          awayTeam: awayTeamData.team?.abbreviation || awayTeamData.team?.shortDisplayName || "AWAY",
+          homeScore: parseInt(homeTeamData.score) || 0,
+          awayScore: parseInt(awayTeamData.score) || 0,
+          quarter,
+          timeRemaining,
+          status,
+        };
+      }).filter((g: any): g is FantasyStreamGame => g !== null);
+    } catch (error) {
+      console.error("Error fetching ESPN games:", error);
+      return [];
     }
-    return allPlays;
-  };
+  }
+
+  function mapESPNPlayType(playType: string, text: string): FantasyStreamPlay['playType'] {
+    const lowerType = (playType || "").toLowerCase();
+    const lowerText = (text || "").toLowerCase();
+    
+    // Scoring plays
+    if (lowerText.includes("touchdown") || lowerType.includes("touchdown")) return "touchdown";
+    if (lowerText.includes("field goal") || lowerType.includes("field goal")) return "fieldgoal";
+    if (lowerText.includes("extra point") || lowerType.includes("extra point")) return "kick";
+    if (lowerText.includes("two-point conversion") || lowerType.includes("two-point conversion") || lowerText.includes("2pt conversion")) return "pass";
+    if (lowerText.includes("safety")) return "safety";
+
+    // Non-scoring special plays
+    if (lowerText.includes("interception") || lowerText.includes("fumble") || lowerType.includes("turnover")) return "turnover";
+    if (lowerType.includes("punt") || lowerText.includes("punts")) return "punt";
+    if (lowerType.includes("kickoff") || lowerType.includes("kick")) return "kick";
+    if (lowerType.includes("penalty") || lowerText.includes("penalty")) return "rush";
+    
+    // Standard plays
+    if (lowerType.includes("rush") || lowerText.includes("up the middle") || lowerText.includes("left end") || lowerText.includes("right end") || lowerText.includes("left guard") || lowerText.includes("right guard") || lowerText.includes("left tackle") || lowerText.includes("right tackle")) return "rush";
+    if (lowerType.includes("pass") || lowerText.includes("pass") || lowerText.includes("complete") || lowerText.includes("incomplete") || lowerText.includes("sacked")) return "pass";
+    
+    // Default fallback instead of null or assuming pass
+    return "rush"; 
+  }
+
+  async function fetchESPNPlaysForGame(gameId: string, isLive: boolean): Promise<FantasyStreamPlay[]> {
+    try {
+      const response = await fetch(`${ESPN_SUMMARY_URL}?event=${gameId}`);
+      if (!response.ok) {
+        console.error("ESPN summary API error:", response.status, "for game:", gameId);
+        return [];
+      }
+      const data = await response.json();
+      
+      const playsMap = new Map<string, FantasyStreamPlay>();
+      
+      // Helper to add play to map (deduplicates by ID)
+      const addPlay = (play: any, teamAbbrev: string, playIndex: number) => {
+        const playId = play.id || `${gameId}-${playIndex}`;
+        if (playsMap.has(playId)) return;
+        
+        const playType = mapESPNPlayType(play.type?.text || "", play.text || "");
+        const isScoringPlay = playType === "touchdown" || playType === "fieldgoal" || playType === "safety";
+        
+        const playData: FantasyStreamPlay = {
+          id: playId,
+          gameId,
+          team: teamAbbrev,
+          quarter: play.period?.number ? `${play.period.number === 1 ? "1st" : play.period.number === 2 ? "2nd" : play.period.number === 3 ? "3rd" : play.period.number === 4 ? "4th" : "OT"}` : "1st",
+          timeRemaining: play.clock?.displayValue || "--",
+          down: play.start?.down,
+          distance: play.start?.distance,
+          yardLine: play.start?.yardLine ? `${play.start.team?.abbreviation || teamAbbrev} ${play.start.yardLine}` : undefined,
+          playType,
+          description: play.text || "Play",
+          yards: play.statYardage || play.yards || 0,
+          timestamp: play.wallclock || new Date(Date.now() - playIndex * 30000).toISOString(),
+          isScoring: isScoringPlay,
+          isLive: isLive && playIndex < 5,
+        };
+
+        playsMap.set(playId, playData);
+      };
+      
+      // Source 1: ESPN's drives.previous (can be array OR object keyed by drive IDs)
+      let previousDrives = data.drives?.previous || [];
+      if (previousDrives && !Array.isArray(previousDrives)) {
+        previousDrives = Object.values(previousDrives);
+      }
+      
+      const drives = [...(previousDrives as any[])];
+      const currentDrive = data.drives?.current;
+      
+      if (currentDrive) {
+        drives.push(currentDrive);
+      }
+
+      let playIndex = 0;
+      for (const drive of drives) {
+        const drivePlays = drive.plays || [];
+        const teamAbbrev = drive.team?.abbreviation || "TEAM";
+        
+        for (const play of drivePlays) {
+          addPlay(play, teamAbbrev, playIndex++);
+        }
+      }
+      
+      // Source 2: scoringPlays array (if available)
+      const scoringPlays = data.scoringPlays || [];
+      for (const scoringPlay of scoringPlays) {
+        const teamAbbrev = scoringPlay.team?.abbreviation || "TEAM";
+        addPlay(scoringPlay, teamAbbrev, playIndex++);
+      }
+      
+      // Source 3: lastPlay (if available and not already included)
+      if (data.lastPlay) {
+        const teamAbbrev = data.lastPlay.team?.abbreviation || "TEAM";
+        addPlay(data.lastPlay, teamAbbrev, playIndex++);
+      }
+
+      const plays = Array.from(playsMap.values());
+      return plays.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    } catch (error) {
+      console.error("Error fetching ESPN plays for game:", gameId, error);
+      return [];
+    }
+  }
 
   app.get("/api/fantasystream/games", requireAuth, async (_req, res) => {
     try {
-      const games = getMockFantasyStreamGames();
+      const games = await fetchESPNGames();
       res.json(games);
     } catch (error) {
       console.error("FantasyStream get games error:", error);
-      res.status(500).json({ message: "Failed to get games" });
+      res.json([]);
     }
   });
 
   app.get("/api/fantasystream/games/:id/plays", requireAuth, async (req, res) => {
     try {
-      const plays = getMockFantasyStreamPlays(req.params.id);
+      const games = await fetchESPNGames();
+      const game = games.find(g => g.id === req.params.id);
+      const isLive = game?.status === 'in';
+      const plays = await fetchESPNPlaysForGame(req.params.id, isLive);
       res.json(plays);
     } catch (error) {
       console.error("FantasyStream get plays error:", error);
-      res.status(500).json({ message: "Failed to get plays" });
+      res.json([]);
     }
   });
 
   app.get("/api/fantasystream/plays", requireAuth, async (req, res) => {
     try {
       const { type } = req.query;
-      let plays = getMockFantasyStreamPlays();
+      const games = await fetchESPNGames();
+      
+      const inProgressGames = games.filter(g => g.status === 'in' || g.status === 'post');
+      
+      let allPlays: FantasyStreamPlay[] = [];
+      
+      if (inProgressGames.length > 0) {
+        // Sort to get most recent games first if there are many
+        const sortedGames = [...inProgressGames].sort((a, b) => {
+          if (a.status === 'in' && b.status !== 'in') return -1;
+          if (a.status !== 'in' && b.status === 'in') return 1;
+          return 0;
+        });
+
+        // Fetch plays for up to 5 games (prioritizing live ones)
+        const targetGames = sortedGames.slice(0, 5);
+        const playPromises = targetGames.map(game => fetchESPNPlaysForGame(game.id, game.status === 'in'));
+        const playArrays = await Promise.all(playPromises);
+        allPlays = playArrays.flat();
+      } else {
+        const recentGames = games.slice(0, 3);
+        const playPromises = recentGames.map(game => fetchESPNPlaysForGame(game.id, false));
+        const playArrays = await Promise.all(playPromises);
+        allPlays = playArrays.flat();
+      }
+      
+      allPlays.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
       
       if (type && type !== "all") {
         if (type === "scoring") {
-          plays = plays.filter(p => p.isScoring);
+          allPlays = allPlays.filter(p => p.isScoring);
         } else if (type === "touchdowns") {
-          plays = plays.filter(p => p.playType === "touchdown");
+          allPlays = allPlays.filter(p => p.playType === "touchdown");
         } else if (type === "big-plays") {
-          plays = plays.filter(p => (p.yards || 0) >= 20);
+          allPlays = allPlays.filter(p => (p.yards || 0) >= 20);
         }
       }
       
-      res.json(plays);
+      res.json(allPlays.slice(0, 50));
     } catch (error) {
       console.error("FantasyStream get plays error:", error);
-      res.status(500).json({ message: "Failed to get plays" });
+      res.json([]);
     }
   });
 
