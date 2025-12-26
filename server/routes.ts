@@ -871,7 +871,7 @@ export async function registerRoutes(
     }
   }
 
-  app.get("/api/fantasystream/games", requireAuth, async (_req, res) => {
+  app.get("/api/fantasystream/games", async (_req, res) => {
     try {
       const games = await fetchESPNGames();
       res.json(games);
@@ -881,7 +881,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/fantasystream/games/:id/plays", requireAuth, async (req, res) => {
+  app.get("/api/fantasystream/games/:id/plays", async (req, res) => {
     try {
       const games = await fetchESPNGames();
       const game = games.find(g => g.id === req.params.id);
@@ -894,7 +894,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/fantasystream/plays", requireAuth, async (req, res) => {
+  app.get("/api/fantasystream/plays", async (req, res) => {
     try {
       const { type } = req.query;
       const games = await fetchESPNGames();
@@ -1365,7 +1365,7 @@ export async function registerRoutes(
   });
 
   // Football-Weather Routes (fetches real NFL data from ESPN + weather from OpenWeather)
-  app.get("/api/football-weather/games", requireAuth, async (req, res) => {
+  app.get("/api/football-weather/games", async (req, res) => {
     try {
       const { NFL_STADIUMS, TEAM_STADIUMS } = await import("@shared/schema");
       

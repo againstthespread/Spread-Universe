@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import { useAuth } from "@/lib/auth-context";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,51 +12,12 @@ import { useState } from "react";
 import { format } from "date-fns";
 
 export default function FootballWeatherDashboard() {
-  const { user, isLoading: authLoading } = useAuth();
   const [, navigate] = useLocation();
   const [activeFilter, setActiveFilter] = useState<FootballWeatherFantasyImplication | "all">("all");
 
   const { data, isLoading, refetch, isFetching } = useQuery<FootballWeatherGamesResponse>({
     queryKey: ["/api/football-weather/games"],
-    enabled: !!user,
   });
-
-  if (authLoading) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <Skeleton className="h-12 w-64 mb-8" />
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          {[...Array(4)].map((_, i) => (
-            <Skeleton key={i} className="h-24" />
-          ))}
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[...Array(6)].map((_, i) => (
-            <Skeleton key={i} className="h-64" />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <Card>
-          <CardContent className="p-8 text-center">
-            <Cloud className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
-            <h2 className="text-xl font-semibold mb-2">Sign In Required</h2>
-            <p className="text-muted-foreground mb-4">
-              Please sign in to access Football Weather data.
-            </p>
-            <Button onClick={() => navigate("/login")} data-testid="button-login">
-              Sign In
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   const filteredGames =
     data?.games?.filter((game) =>
@@ -67,7 +27,7 @@ export default function FootballWeatherDashboard() {
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex items-center gap-4 mb-6">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/dashboard")} data-testid="button-back">
+        <Button variant="ghost" size="icon" onClick={() => navigate("/")} data-testid="button-back">
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1">

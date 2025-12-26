@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState, useEffect } from "react";
-import { useLocation } from "wouter";
+import { useState } from "react";
 import { Play, RefreshCw } from "lucide-react";
 import { type FantasyStreamGame, type FantasyStreamPlay } from "@shared/schema";
 import { LiveScoresBar } from "@/components/fantasystream/live-scores-bar";
@@ -8,23 +7,13 @@ import { PlayCard } from "@/components/fantasystream/play-card";
 import { PlayFilters, type PlayFilterType } from "@/components/fantasystream/play-filters";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient } from "@/lib/queryClient";
 
 export default function FantasyStreamDashboard() {
-  const { user, isLoading: authLoading } = useAuth();
-  const [, navigate] = useLocation();
   const { toast } = useToast();
   const [activeFilter, setActiveFilter] = useState<PlayFilterType>("all");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(new Date());
-
-  useEffect(() => {
-    if (!authLoading && !user) {
-      navigate("/login");
-    }
-  }, [user, authLoading, navigate]);
 
   const { 
     data: games = [], 
@@ -32,7 +21,6 @@ export default function FantasyStreamDashboard() {
     refetch: refetchGames
   } = useQuery<FantasyStreamGame[]>({
     queryKey: ["/api/fantasystream/games"],
-    enabled: !!user,
     refetchInterval: 30000,
   });
 
@@ -54,7 +42,6 @@ export default function FantasyStreamDashboard() {
       }
       return response.json();
     },
-    enabled: !!user,
     refetchInterval: 30000,
   });
 
@@ -89,21 +76,6 @@ export default function FantasyStreamDashboard() {
       hour12: true,
     });
   };
-
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-background">
-        <div className="container mx-auto px-4 py-8">
-          <Skeleton className="h-8 w-48 mb-4" />
-          <Skeleton className="h-64 w-full" />
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return null;
-  }
 
   return (
     <div className="min-h-screen bg-background">

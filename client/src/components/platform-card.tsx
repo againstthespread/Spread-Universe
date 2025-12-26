@@ -1,4 +1,4 @@
-import { Users, Trophy, Play, Medal, Star, Cloud, type LucideIcon } from "lucide-react";
+import { Users, Trophy, Play, Medal, Star, Cloud, Lock, type LucideIcon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import type { Platform } from "@shared/schema";
 import crowdlineLogo from "@assets/generated_images/plus_minus_sports_logo.png";
@@ -20,9 +20,10 @@ const iconMap: Record<string, LucideIcon> = {
 interface PlatformCardProps {
   platform: Platform;
   onClick?: () => void;
+  showLockIcon?: boolean;
 }
 
-export function PlatformCard({ platform, onClick }: PlatformCardProps) {
+export function PlatformCard({ platform, onClick, showLockIcon }: PlatformCardProps) {
   const Icon = iconMap[platform.icon] || Users;
 
   return (
@@ -53,10 +54,15 @@ export function PlatformCard({ platform, onClick }: PlatformCardProps) {
             )}
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-lg leading-tight mb-1">
-              {platform.name}
-            </h3>
-            <p className="text-sm text-muted-foreground line-clamp-2">
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold text-lg leading-tight">
+                {platform.name}
+              </h3>
+              {showLockIcon && (
+                <Lock className="h-4 w-4 text-muted-foreground" data-testid={`lock-icon-${platform.id}`} />
+              )}
+            </div>
+            <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
               {platform.description}
             </p>
           </div>
