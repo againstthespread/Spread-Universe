@@ -1,7 +1,7 @@
 import { Users, Trophy, Play, Medal, Star, Cloud, Lock, type LucideIcon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import type { Platform } from "@shared/schema";
-import crowdlineLogo from "@assets/generated_images/plus_minus_sports_logo.png";
+import crowdlineLogo from "@assets/generated_images/black_plus-minus_on_white.png";
 import marchMadnessLogo from "@assets/generated_images/simple_basketball_icon_logo.png";
 import fantasyStreamLogo from "@assets/generated_images/referee_touchdown_signal_icon.png";
 import postseasonLogo from "@assets/generated_images/lombardi_trophy_icon.png";
