@@ -1,12 +1,12 @@
 import { Users, Trophy, Play, Medal, Star, Cloud, type LucideIcon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import type { Platform } from "@shared/schema";
-import crowdlineLogo from "@assets/generated_images/plus_minus_sports_logo.png";
-import marchMadnessLogo from "@assets/generated_images/simple_basketball_icon_logo.png";
-import fantasyStreamLogo from "@assets/generated_images/referee_touchdown_signal_icon.png";
-import postseasonLogo from "@assets/generated_images/lombardi_trophy_icon.png";
-import gamblingLeagueLogo from "@assets/generated_images/green_red_equals_sign_icon.png";
-import footballWeatherLogo from "@assets/generated_images/sun_behind_cloud_weather_icon.png";
+import crowdlineLogo from "@assets/generated_images/white_plus_minus_icon.png";
+import marchMadnessLogo from "@assets/generated_images/white_basketball_silhouette_icon.png";
+import fantasyStreamLogo from "@assets/generated_images/white_referee_touchdown_icon.png";
+import postseasonLogo from "@assets/generated_images/white_lombardi_trophy_icon.png";
+import gamblingLeagueLogo from "@assets/generated_images/white_equals_bars_icon.png";
+import footballWeatherLogo from "@assets/generated_images/white_weather_cloud_sun_icon.png";
 
 const iconMap: Record<string, LucideIcon> = {
   Users,
