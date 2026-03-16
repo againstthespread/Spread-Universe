@@ -607,14 +607,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async mm_scorePicksForGame(gameId: string, winningTeamId: string, pointValue: number): Promise<void> {
-    const picks = await this.mm_getPicksByGame(gameId);
-    for (const pick of picks) {
-      const isCorrect = pick.pickedTeamId === winningTeamId;
-      const pointsEarned = isCorrect ? pointValue : 0;
-      await db.update(marchmadnessPicks)
-        .set({ isCorrect, pointsEarned })
-        .where(eq(marchmadnessPicks.id, pick.id));
-    }
+    await db.transaction(async (tx) => {
+      const picks = await tx.select().from(marchmadnessPicks).where(eq(marchmadnessPicks.gameId, gameId));
+      for (const pick of picks) {
+        const isCorrect = pick.pickedTeamId === winningTeamId;
+        const pointsEarned = isCorrect ? pointValue : 0;
+        await tx.update(marchmadnessPicks)
+          .set({ isCorrect, pointsEarned })
+          .where(eq(marchmadnessPicks.id, pick.id));
+      }
+    });
   }
 
   // MarchMadness Leaderboard
