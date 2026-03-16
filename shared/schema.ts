@@ -204,6 +204,9 @@ export const insertMarchmadnessGameSchema = createInsertSchema(marchmadnessGames
 });
 
 export const updateMarchmadnessGameSchema = z.object({
+  roundId: z.string().optional(),
+  homeTeamId: z.string().optional(),
+  awayTeamId: z.string().optional(),
   spread: z.string().optional(),
   startTime: z.string().or(z.date()).transform((val) => new Date(val)).optional(),
   region: z.string().optional(),

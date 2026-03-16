@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Plus, Trash2, Check, Loader2, Pencil } from "lucide-react";
+import { Plus, Trash2, Check, Loader2, Pencil, Settings2 } from "lucide-react";
 import { formatInEastern, easternToUTC } from "@/lib/timezone";
 import type { MarchmadnessTeam, MarchmadnessRound, MarchmadnessGameWithTeams } from "@shared/schema";
 
@@ -58,6 +58,8 @@ export default function MarchMadnessAdminContent() {
   const [editTeamDialogOpen, setEditTeamDialogOpen] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<MarchmadnessTeam | null>(null);
   const [createGameDialogOpen, setCreateGameDialogOpen] = useState(false);
+  const [editGameDialogOpen, setEditGameDialogOpen] = useState(false);
+  const [selectedGameForEdit, setSelectedGameForEdit] = useState<MarchmadnessGameWithTeams | null>(null);
   const [resultDialogOpen, setResultDialogOpen] = useState(false);
   const [selectedGame, setSelectedGame] = useState<MarchmadnessGameWithTeams | null>(null);
   const [teamSearch, setTeamSearch] = useState("");
@@ -85,6 +87,11 @@ export default function MarchMadnessAdminContent() {
   });
 
   const createGameForm = useForm<z.infer<typeof createGameSchema>>({
+    resolver: zodResolver(createGameSchema),
+    defaultValues: { roundId: "", homeTeamId: "", awayTeamId: "", spread: "", date: "", time: "12:00", region: "" },
+  });
+
+  const editGameForm = useForm<z.infer<typeof createGameSchema>>({
     resolver: zodResolver(createGameSchema),
     defaultValues: { roundId: "", homeTeamId: "", awayTeamId: "", spread: "", date: "", time: "12:00", region: "" },
   });
@@ -159,6 +166,30 @@ export default function MarchMadnessAdminContent() {
     },
   });
 
+  const editGameMutation = useMutation({
+    mutationFn: async (data: z.infer<typeof createGameSchema> & { id: string }) => {
+      const startTime = easternToUTC(data.date, data.time);
+      return await apiRequest("PATCH", `/api/marchmadness/admin/games/${data.id}`, {
+        roundId: data.roundId,
+        homeTeamId: data.homeTeamId,
+        awayTeamId: data.awayTeamId,
+        spread: data.spread,
+        startTime,
+        region: data.region || null,
+      });
+    },
+    onSuccess: () => {
+      toast({ title: "Game updated" });
+      setEditGameDialogOpen(false);
+      setSelectedGameForEdit(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/marchmadness/admin/games"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/marchmadness/games"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
   const deleteGameMutation = useMutation({
     mutationFn: async (id: string) => {
       return await apiRequest("DELETE", `/api/marchmadness/admin/games/${id}`);
@@ -206,6 +237,24 @@ export default function MarchMadnessAdminContent() {
       logoUrl: team.logoUrl || "",
     });
     setEditTeamDialogOpen(true);
+  };
+
+  const openEditGameDialog = (game: MarchmadnessGameWithTeams) => {
+    setSelectedGameForEdit(game);
+    const d = new Date(game.startTime);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const timeStr = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    editGameForm.reset({
+      roundId: game.roundId,
+      homeTeamId: game.homeTeamId,
+      awayTeamId: game.awayTeamId,
+      spread: game.spread,
+      date: dateStr,
+      time: timeStr,
+      region: game.region || "",
+    });
+    setEditGameDialogOpen(true);
   };
 
   const openResultDialog = (game: MarchmadnessGameWithTeams) => {
@@ -430,8 +479,18 @@ export default function MarchMadnessAdminContent() {
                           <Button
                             size="icon"
                             variant="outline"
+                            onClick={() => openEditGameDialog(game)}
+                            data-testid={`button-mm-edit-game-${game.id}`}
+                            title="Edit game"
+                          >
+                            <Settings2 className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="outline"
                             onClick={() => openResultDialog(game)}
                             data-testid={`button-mm-result-${game.id}`}
+                            title="Enter result"
                           >
                             <Check className="h-4 w-4" />
                           </Button>
@@ -441,6 +500,7 @@ export default function MarchMadnessAdminContent() {
                             onClick={() => deleteGameMutation.mutate(game.id)}
                             disabled={deleteGameMutation.isPending}
                             data-testid={`button-mm-delete-${game.id}`}
+                            title="Delete game"
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -660,6 +720,154 @@ export default function MarchMadnessAdminContent() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Edit Game Dialog */}
+      <Dialog open={editGameDialogOpen} onOpenChange={setEditGameDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Game</DialogTitle>
+          </DialogHeader>
+          <Form {...editGameForm}>
+            <form
+              onSubmit={editGameForm.handleSubmit((data) => {
+                if (!selectedGameForEdit) return;
+                editGameMutation.mutate({ ...data, id: selectedGameForEdit.id });
+              })}
+              className="space-y-4"
+            >
+              <FormField
+                control={editGameForm.control}
+                name="roundId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Round</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-mm-edit-round">
+                          <SelectValue placeholder="Select round" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {rounds?.map((r) => (
+                          <SelectItem key={r.id} value={r.id}>{r.displayName}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={editGameForm.control}
+                  name="awayTeamId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Away Team</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-mm-edit-away-team">
+                            <SelectValue placeholder="Select team" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {teams?.map((t) => (
+                            <SelectItem key={t.id} value={t.id}>
+                              {t.seed ? `(${t.seed}) ` : ""}{t.shortName || t.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={editGameForm.control}
+                  name="homeTeamId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Home Team</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-mm-edit-home-team">
+                            <SelectValue placeholder="Select team" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {teams?.map((t) => (
+                            <SelectItem key={t.id} value={t.id}>
+                              {t.seed ? `(${t.seed}) ` : ""}{t.shortName || t.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <FormField
+                control={editGameForm.control}
+                name="spread"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Spread</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g. -3.5 or +7" {...field} data-testid="input-mm-edit-spread" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={editGameForm.control}
+                  name="date"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Date</FormLabel>
+                      <FormControl>
+                        <Input type="date" {...field} data-testid="input-mm-edit-game-date" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={editGameForm.control}
+                  name="time"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Time (ET)</FormLabel>
+                      <FormControl>
+                        <Input type="time" {...field} data-testid="input-mm-edit-game-time" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <FormField
+                control={editGameForm.control}
+                name="region"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Region (optional)</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g. East, West, South, Midwest" {...field} data-testid="input-mm-edit-region" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <Button type="submit" className="w-full" disabled={editGameMutation.isPending} data-testid="button-mm-submit-edit-game">
+                {editGameMutation.isPending ? "Saving..." : "Save Changes"}
+              </Button>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Team Dialog */}
       <Dialog open={editTeamDialogOpen} onOpenChange={setEditTeamDialogOpen}>
