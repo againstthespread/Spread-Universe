@@ -341,9 +341,9 @@ export default function MarchMadnessAdminContent() {
                                   </SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
-                                  {teams?.map((t) => (
+                                  {teams?.slice().sort((a, b) => (a.shortName || a.name).localeCompare(b.shortName || b.name)).map((t) => (
                                     <SelectItem key={t.id} value={t.id}>
-                                      {t.seed ? `(${t.seed}) ` : ""}{t.shortName || t.name}
+                                      {t.shortName || t.name}{t.seed ? ` (${t.seed})` : ""}
                                     </SelectItem>
                                   ))}
                                 </SelectContent>
@@ -365,9 +365,9 @@ export default function MarchMadnessAdminContent() {
                                   </SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
-                                  {teams?.map((t) => (
+                                  {teams?.slice().sort((a, b) => (a.shortName || a.name).localeCompare(b.shortName || b.name)).map((t) => (
                                     <SelectItem key={t.id} value={t.id}>
-                                      {t.seed ? `(${t.seed}) ` : ""}{t.shortName || t.name}
+                                      {t.shortName || t.name}{t.seed ? ` (${t.seed})` : ""}
                                     </SelectItem>
                                   ))}
                                 </SelectContent>
@@ -771,9 +771,9 @@ export default function MarchMadnessAdminContent() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {teams?.map((t) => (
+                          {teams?.slice().sort((a, b) => (a.shortName || a.name).localeCompare(b.shortName || b.name)).map((t) => (
                             <SelectItem key={t.id} value={t.id}>
-                              {t.seed ? `(${t.seed}) ` : ""}{t.shortName || t.name}
+                              {t.shortName || t.name}{t.seed ? ` (${t.seed})` : ""}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -795,9 +795,9 @@ export default function MarchMadnessAdminContent() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {teams?.map((t) => (
+                          {teams?.slice().sort((a, b) => (a.shortName || a.name).localeCompare(b.shortName || b.name)).map((t) => (
                             <SelectItem key={t.id} value={t.id}>
-                              {t.seed ? `(${t.seed}) ` : ""}{t.shortName || t.name}
+                              {t.shortName || t.name}{t.seed ? ` (${t.seed})` : ""}
                             </SelectItem>
                           ))}
                         </SelectContent>
