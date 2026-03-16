@@ -118,6 +118,7 @@ export interface IStorage {
   mm_getGameWithTeams(id: string): Promise<MarchmadnessGameWithTeams | undefined>;
   mm_getGamesByRoundWithTeams(roundId: string, userId?: string): Promise<MarchmadnessGameWithTeams[]>;
   mm_getUpcomingGames(userId?: string): Promise<MarchmadnessGameWithTeams[]>;
+  mm_getAllGames(userId?: string): Promise<MarchmadnessGameWithTeams[]>;
   
   // MarchMadness Pick methods
   mm_getPick(id: string): Promise<MarchmadnessPick | undefined>;
@@ -126,6 +127,8 @@ export interface IStorage {
   mm_updatePick(id: string, pickedTeamId: string): Promise<MarchmadnessPick | undefined>;
   mm_deletePick(id: string): Promise<void>;
   mm_getPicksByUser(userId: string): Promise<MarchmadnessPick[]>;
+  mm_getPicksByGame(gameId: string): Promise<MarchmadnessPick[]>;
+  mm_scorePicksForGame(gameId: string, winningTeamId: string, pointValue: number): Promise<void>;
   
   // MarchMadness Leaderboard
   mm_getLeaderboard(): Promise<MarchmadnessLeaderboardEntry[]>;
@@ -548,6 +551,28 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
+  async mm_getAllGames(userId?: string): Promise<MarchmadnessGameWithTeams[]> {
+    const games = await db.select().from(marchmadnessGames).orderBy(marchmadnessGames.startTime);
+    const result: MarchmadnessGameWithTeams[] = [];
+
+    for (const game of games) {
+      const [homeTeam] = await db.select().from(marchmadnessTeams).where(eq(marchmadnessTeams.id, game.homeTeamId));
+      const [awayTeam] = await db.select().from(marchmadnessTeams).where(eq(marchmadnessTeams.id, game.awayTeamId));
+      const [round] = await db.select().from(marchmadnessRounds).where(eq(marchmadnessRounds.id, game.roundId));
+
+      if (homeTeam && awayTeam && round) {
+        let userPick: MarchmadnessPick | null = null;
+        if (userId) {
+          const [pick] = await db.select().from(marchmadnessPicks).where(and(eq(marchmadnessPicks.visitorId, userId), eq(marchmadnessPicks.gameId, game.id)));
+          userPick = pick || null;
+        }
+        result.push({ ...game, homeTeam, awayTeam, round, userPick });
+      }
+    }
+
+    return result;
+  }
+
   // MarchMadness Pick methods
   async mm_getPick(id: string): Promise<MarchmadnessPick | undefined> {
     const [pick] = await db.select().from(marchmadnessPicks).where(eq(marchmadnessPicks.id, id));
@@ -575,6 +600,21 @@ export class DatabaseStorage implements IStorage {
 
   async mm_getPicksByUser(userId: string): Promise<MarchmadnessPick[]> {
     return await db.select().from(marchmadnessPicks).where(eq(marchmadnessPicks.visitorId, userId));
+  }
+
+  async mm_getPicksByGame(gameId: string): Promise<MarchmadnessPick[]> {
+    return await db.select().from(marchmadnessPicks).where(eq(marchmadnessPicks.gameId, gameId));
+  }
+
+  async mm_scorePicksForGame(gameId: string, winningTeamId: string, pointValue: number): Promise<void> {
+    const picks = await this.mm_getPicksByGame(gameId);
+    for (const pick of picks) {
+      const isCorrect = pick.pickedTeamId === winningTeamId;
+      const pointsEarned = isCorrect ? pointValue : 0;
+      await db.update(marchmadnessPicks)
+        .set({ isCorrect, pointsEarned })
+        .where(eq(marchmadnessPicks.id, pick.id));
+    }
   }
 
   // MarchMadness Leaderboard

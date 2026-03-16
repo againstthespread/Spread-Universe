@@ -639,7 +639,7 @@ export async function registerRoutes(
         const games = await storage.mm_getGamesByRoundWithTeams(roundId);
         return res.json(games);
       }
-      const games = await storage.mm_getUpcomingGames();
+      const games = await storage.mm_getAllGames();
       res.json(games);
     } catch (error) {
       console.error("Admin get games error:", error);
@@ -673,6 +673,14 @@ export async function registerRoutes(
       if (!game) {
         return res.status(404).json({ message: "Game not found" });
       }
+
+      if (game.status === "final" && game.winningTeamId) {
+        const round = await storage.mm_getRound(game.roundId);
+        if (round) {
+          await storage.mm_scorePicksForGame(game.id, game.winningTeamId, round.pointValue);
+        }
+      }
+
       res.json(game);
     } catch (error) {
       console.error("Admin update game error:", error);
