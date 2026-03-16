@@ -13,6 +13,25 @@ interface GameCardProps {
   game: MarchmadnessGameWithTeams;
 }
 
+function TeamLogo({ logoUrl, name }: { logoUrl?: string | null; name: string }) {
+  const [errored, setErrored] = useState(false);
+  if (logoUrl && !errored) {
+    return (
+      <img
+        src={logoUrl}
+        alt={name}
+        className="h-8 w-8 object-contain flex-shrink-0"
+        onError={() => setErrored(true)}
+      />
+    );
+  }
+  return (
+    <div className="h-8 w-8 rounded bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground flex-shrink-0">
+      {name.slice(0, 2).toUpperCase()}
+    </div>
+  );
+}
+
 export function GameCard({ game }: GameCardProps) {
   const { toast } = useToast();
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(
@@ -61,12 +80,13 @@ export function GameCard({ game }: GameCardProps) {
         data-testid={`button-pick-${team.id}`}
       >
         <div className="flex items-center gap-2">
+          <TeamLogo logoUrl={team.logoUrl} name={team.shortName || team.name} />
           {team.seed && (
             <span className="text-xs text-muted-foreground font-medium">
               ({team.seed})
             </span>
           )}
-          <span className="font-semibold">{team.name}</span>
+          <span className="font-semibold">{team.shortName || team.name}</span>
           {isWinner && <Trophy className="h-4 w-4 text-yellow-500" />}
         </div>
         <div className="flex items-center gap-2">

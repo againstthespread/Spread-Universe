@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Plus, Trash2, Check, Loader2 } from "lucide-react";
+import { Plus, Trash2, Check, Loader2, Pencil } from "lucide-react";
 import { formatInEastern, easternToUTC } from "@/lib/timezone";
 import type { MarchmadnessTeam, MarchmadnessRound, MarchmadnessGameWithTeams } from "@shared/schema";
 
@@ -23,6 +23,16 @@ const createTeamSchema = z.object({
   mascot: z.string().optional(),
   seed: z.number().int().min(1).max(16).optional(),
   conference: z.string().optional(),
+  logoUrl: z.string().url("Must be a valid URL").optional().or(z.literal("")),
+});
+
+const editTeamSchema = z.object({
+  name: z.string().min(1, "Team name required"),
+  shortName: z.string().optional(),
+  mascot: z.string().optional(),
+  seed: z.number().int().min(1).max(16).optional().nullable(),
+  conference: z.string().optional(),
+  logoUrl: z.string().url("Must be a valid URL").optional().or(z.literal("")),
 });
 
 const createGameSchema = z.object({
@@ -45,9 +55,12 @@ export default function MarchMadnessAdminContent() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("games");
   const [createTeamDialogOpen, setCreateTeamDialogOpen] = useState(false);
+  const [editTeamDialogOpen, setEditTeamDialogOpen] = useState(false);
+  const [selectedTeam, setSelectedTeam] = useState<MarchmadnessTeam | null>(null);
   const [createGameDialogOpen, setCreateGameDialogOpen] = useState(false);
   const [resultDialogOpen, setResultDialogOpen] = useState(false);
   const [selectedGame, setSelectedGame] = useState<MarchmadnessGameWithTeams | null>(null);
+  const [teamSearch, setTeamSearch] = useState("");
 
   const { data: teams } = useQuery<MarchmadnessTeam[]>({
     queryKey: ["/api/marchmadness/admin/teams"],
@@ -63,7 +76,12 @@ export default function MarchMadnessAdminContent() {
 
   const createTeamForm = useForm<z.infer<typeof createTeamSchema>>({
     resolver: zodResolver(createTeamSchema),
-    defaultValues: { name: "", shortName: "", mascot: "", conference: "" },
+    defaultValues: { name: "", shortName: "", mascot: "", conference: "", logoUrl: "" },
+  });
+
+  const editTeamForm = useForm<z.infer<typeof editTeamSchema>>({
+    resolver: zodResolver(editTeamSchema),
+    defaultValues: { name: "", shortName: "", mascot: "", conference: "", logoUrl: "", seed: undefined },
   });
 
   const createGameForm = useForm<z.infer<typeof createGameSchema>>({
@@ -78,13 +96,39 @@ export default function MarchMadnessAdminContent() {
 
   const createTeamMutation = useMutation({
     mutationFn: async (data: z.infer<typeof createTeamSchema>) => {
-      return await apiRequest("POST", "/api/marchmadness/admin/teams", data);
+      return await apiRequest("POST", "/api/marchmadness/admin/teams", {
+        ...data,
+        logoUrl: data.logoUrl || null,
+      });
     },
     onSuccess: () => {
       toast({ title: "Team created" });
       setCreateTeamDialogOpen(false);
       createTeamForm.reset();
       queryClient.invalidateQueries({ queryKey: ["/api/marchmadness/admin/teams"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const editTeamMutation = useMutation({
+    mutationFn: async (data: z.infer<typeof editTeamSchema> & { id: string }) => {
+      return await apiRequest("PATCH", `/api/marchmadness/admin/teams/${data.id}`, {
+        name: data.name,
+        shortName: data.shortName || null,
+        mascot: data.mascot || null,
+        seed: data.seed || null,
+        conference: data.conference || null,
+        logoUrl: data.logoUrl || null,
+      });
+    },
+    onSuccess: () => {
+      toast({ title: "Team updated" });
+      setEditTeamDialogOpen(false);
+      setSelectedTeam(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/marchmadness/admin/teams"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/marchmadness/games"] });
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -151,6 +195,19 @@ export default function MarchMadnessAdminContent() {
     },
   });
 
+  const openEditDialog = (team: MarchmadnessTeam) => {
+    setSelectedTeam(team);
+    editTeamForm.reset({
+      name: team.name,
+      shortName: team.shortName || "",
+      mascot: team.mascot || "",
+      seed: team.seed ?? undefined,
+      conference: team.conference || "",
+      logoUrl: team.logoUrl || "",
+    });
+    setEditTeamDialogOpen(true);
+  };
+
   const openResultDialog = (game: MarchmadnessGameWithTeams) => {
     setSelectedGame(game);
     resultForm.setValue("homeScore", game.homeScore || 0);
@@ -158,6 +215,12 @@ export default function MarchMadnessAdminContent() {
     resultForm.setValue("winningTeamId", game.winningTeamId || "");
     setResultDialogOpen(true);
   };
+
+  const filteredTeams = teams?.filter(t =>
+    !teamSearch || t.name.toLowerCase().includes(teamSearch.toLowerCase()) ||
+    (t.shortName || "").toLowerCase().includes(teamSearch.toLowerCase()) ||
+    (t.conference || "").toLowerCase().includes(teamSearch.toLowerCase())
+  );
 
   if (gamesLoading) {
     return (
@@ -231,7 +294,7 @@ export default function MarchMadnessAdminContent() {
                                 <SelectContent>
                                   {teams?.map((t) => (
                                     <SelectItem key={t.id} value={t.id}>
-                                      {t.seed ? `(${t.seed}) ` : ""}{t.name}
+                                      {t.seed ? `(${t.seed}) ` : ""}{t.shortName || t.name}
                                     </SelectItem>
                                   ))}
                                 </SelectContent>
@@ -255,7 +318,7 @@ export default function MarchMadnessAdminContent() {
                                 <SelectContent>
                                   {teams?.map((t) => (
                                     <SelectItem key={t.id} value={t.id}>
-                                      {t.seed ? `(${t.seed}) ` : ""}{t.name}
+                                      {t.seed ? `(${t.seed}) ` : ""}{t.shortName || t.name}
                                     </SelectItem>
                                   ))}
                                 </SelectContent>
@@ -402,103 +465,169 @@ export default function MarchMadnessAdminContent() {
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-4 flex-wrap">
               <h3 className="text-lg font-semibold">Teams ({teams?.length || 0})</h3>
-              <Dialog open={createTeamDialogOpen} onOpenChange={setCreateTeamDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button data-testid="button-mm-create-team">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Team
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Create Team</DialogTitle>
-                  </DialogHeader>
-                  <Form {...createTeamForm}>
-                    <form onSubmit={createTeamForm.handleSubmit((data) => createTeamMutation.mutate(data))} className="space-y-4">
-                      <FormField
-                        control={createTeamForm.control}
-                        name="name"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Team Name</FormLabel>
-                            <FormControl>
-                              <Input placeholder="e.g. Duke Blue Devils" {...field} data-testid="input-mm-team-name" />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <div className="grid grid-cols-2 gap-4">
+              <div className="flex gap-2 items-center">
+                <Input
+                  placeholder="Search teams..."
+                  value={teamSearch}
+                  onChange={(e) => setTeamSearch(e.target.value)}
+                  className="w-48"
+                  data-testid="input-team-search"
+                />
+                <Dialog open={createTeamDialogOpen} onOpenChange={setCreateTeamDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button data-testid="button-mm-create-team">
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Team
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Create Team</DialogTitle>
+                    </DialogHeader>
+                    <Form {...createTeamForm}>
+                      <form onSubmit={createTeamForm.handleSubmit((data) => createTeamMutation.mutate(data))} className="space-y-4">
                         <FormField
                           control={createTeamForm.control}
-                          name="shortName"
+                          name="name"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Short Name</FormLabel>
+                              <FormLabel>Team Name</FormLabel>
                               <FormControl>
-                                <Input placeholder="e.g. Duke" {...field} data-testid="input-mm-short-name" />
+                                <Input placeholder="e.g. Duke Blue Devils" {...field} data-testid="input-mm-team-name" />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
                           )}
                         />
+                        <div className="grid grid-cols-2 gap-4">
+                          <FormField
+                            control={createTeamForm.control}
+                            name="shortName"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Short Name</FormLabel>
+                                <FormControl>
+                                  <Input placeholder="e.g. Duke" {...field} data-testid="input-mm-short-name" />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={createTeamForm.control}
+                            name="seed"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Seed</FormLabel>
+                                <FormControl>
+                                  <Input type="number" min="1" max="16" placeholder="1-16" {...field} onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : undefined)} data-testid="input-mm-seed" />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <FormField
+                            control={createTeamForm.control}
+                            name="mascot"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Mascot</FormLabel>
+                                <FormControl>
+                                  <Input placeholder="e.g. Blue Devils" {...field} data-testid="input-mm-mascot" />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={createTeamForm.control}
+                            name="conference"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Conference</FormLabel>
+                                <FormControl>
+                                  <Input placeholder="e.g. ACC" {...field} data-testid="input-mm-conference" />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
                         <FormField
                           control={createTeamForm.control}
-                          name="seed"
+                          name="logoUrl"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Seed</FormLabel>
+                              <FormLabel>Logo URL</FormLabel>
                               <FormControl>
-                                <Input type="number" min="1" max="16" placeholder="1-16" {...field} onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : undefined)} data-testid="input-mm-seed" />
+                                <Input placeholder="https://example.com/logo.png" {...field} data-testid="input-mm-logo-url" />
                               </FormControl>
                               <FormMessage />
+                              {field.value && (
+                                <img src={field.value} alt="Logo preview" className="h-10 w-10 object-contain rounded mt-1" onError={(e) => (e.currentTarget.style.display = "none")} />
+                              )}
                             </FormItem>
                           )}
                         />
-                      </div>
-                      <FormField
-                        control={createTeamForm.control}
-                        name="conference"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Conference</FormLabel>
-                            <FormControl>
-                              <Input placeholder="e.g. ACC" {...field} data-testid="input-mm-conference" />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <Button type="submit" className="w-full" disabled={createTeamMutation.isPending} data-testid="button-mm-submit-team">
-                        {createTeamMutation.isPending ? "Creating..." : "Create Team"}
-                      </Button>
-                    </form>
-                  </Form>
-                </DialogContent>
-              </Dialog>
+                        <Button type="submit" className="w-full" disabled={createTeamMutation.isPending} data-testid="button-mm-submit-team">
+                          {createTeamMutation.isPending ? "Creating..." : "Create Team"}
+                        </Button>
+                      </form>
+                    </Form>
+                  </DialogContent>
+                </Dialog>
+              </div>
             </div>
 
-            {teams && teams.length > 0 ? (
+            {filteredTeams && filteredTeams.length > 0 ? (
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>Logo</TableHead>
                     <TableHead>Seed</TableHead>
                     <TableHead>Name</TableHead>
                     <TableHead>Conference</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {teams.map((team) => (
+                  {filteredTeams.map((team) => (
                     <TableRow key={team.id} data-testid={`row-mm-team-${team.id}`}>
+                      <TableCell>
+                        {team.logoUrl ? (
+                          <img src={team.logoUrl} alt={team.name} className="h-8 w-8 object-contain" onError={(e) => (e.currentTarget.style.display = "none")} />
+                        ) : (
+                          <div className="h-8 w-8 rounded bg-muted flex items-center justify-center text-xs text-muted-foreground">
+                            {(team.shortName || team.name).slice(0, 2).toUpperCase()}
+                          </div>
+                        )}
+                      </TableCell>
                       <TableCell className="font-medium">{team.seed || "-"}</TableCell>
-                      <TableCell>{team.name}</TableCell>
+                      <TableCell>
+                        <div className="font-medium">{team.name}</div>
+                        {team.shortName && <div className="text-xs text-muted-foreground">{team.shortName}</div>}
+                      </TableCell>
                       <TableCell>{team.conference || "-"}</TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          onClick={() => openEditDialog(team)}
+                          data-testid={`button-mm-edit-team-${team.id}`}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             ) : (
-              <p className="text-muted-foreground text-center py-4">No teams created yet</p>
+              <p className="text-muted-foreground text-center py-4">
+                {teamSearch ? "No teams match your search" : "No teams created yet"}
+              </p>
             )}
           </div>
         </TabsContent>
@@ -512,61 +641,111 @@ export default function MarchMadnessAdminContent() {
                   <TableRow>
                     <TableHead>Order</TableHead>
                     <TableHead>Name</TableHead>
+                    <TableHead>Point Value</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {rounds.map((round) => (
                     <TableRow key={round.id} data-testid={`row-mm-round-${round.id}`}>
-                      <TableCell className="font-medium">{round.roundOrder}</TableCell>
+                      <TableCell>{round.roundOrder}</TableCell>
                       <TableCell>{round.displayName}</TableCell>
+                      <TableCell>{round.pointValue} pts</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             ) : (
-              <p className="text-muted-foreground text-center py-4">No rounds configured</p>
+              <p className="text-muted-foreground text-center py-4">No rounds set up</p>
             )}
           </div>
         </TabsContent>
       </Tabs>
 
-      <Dialog open={resultDialogOpen} onOpenChange={setResultDialogOpen}>
+      {/* Edit Team Dialog */}
+      <Dialog open={editTeamDialogOpen} onOpenChange={setEditTeamDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Update Result</DialogTitle>
+            <DialogTitle>Edit Team</DialogTitle>
           </DialogHeader>
-          {selectedGame && (
-            <div className="mb-4 text-center">
-              <div className="font-medium">
-                {selectedGame.awayTeam.seed && `(${selectedGame.awayTeam.seed}) `}{selectedGame.awayTeam.name} @ {selectedGame.homeTeam.seed && `(${selectedGame.homeTeam.seed}) `}{selectedGame.homeTeam.name}
-              </div>
-              <div className="text-sm text-muted-foreground">{selectedGame.round.displayName}</div>
-            </div>
-          )}
-          <Form {...resultForm}>
-            <form onSubmit={resultForm.handleSubmit((data) => updateResultMutation.mutate({ ...data, id: selectedGame!.id }))} className="space-y-4">
+          <Form {...editTeamForm}>
+            <form
+              onSubmit={editTeamForm.handleSubmit((data) => {
+                if (!selectedTeam) return;
+                editTeamMutation.mutate({ ...data, id: selectedTeam.id });
+              })}
+              className="space-y-4"
+            >
+              <FormField
+                control={editTeamForm.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Team Name</FormLabel>
+                    <FormControl>
+                      <Input {...field} data-testid="input-mm-edit-team-name" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               <div className="grid grid-cols-2 gap-4">
                 <FormField
-                  control={resultForm.control}
-                  name="awayScore"
+                  control={editTeamForm.control}
+                  name="shortName"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{selectedGame?.awayTeam.name} Score</FormLabel>
+                      <FormLabel>Short Name</FormLabel>
                       <FormControl>
-                        <Input type="number" min="0" {...field} onChange={(e) => field.onChange(parseInt(e.target.value) || 0)} data-testid="input-mm-away-score" />
+                        <Input {...field} data-testid="input-mm-edit-short-name" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
                 <FormField
-                  control={resultForm.control}
-                  name="homeScore"
+                  control={editTeamForm.control}
+                  name="seed"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{selectedGame?.homeTeam.name} Score</FormLabel>
+                      <FormLabel>Seed</FormLabel>
                       <FormControl>
-                        <Input type="number" min="0" {...field} onChange={(e) => field.onChange(parseInt(e.target.value) || 0)} data-testid="input-mm-home-score" />
+                        <Input
+                          type="number"
+                          min="1"
+                          max="16"
+                          placeholder="1-16"
+                          value={field.value ?? ""}
+                          onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : null)}
+                          data-testid="input-mm-edit-seed"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={editTeamForm.control}
+                  name="mascot"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Mascot</FormLabel>
+                      <FormControl>
+                        <Input {...field} data-testid="input-mm-edit-mascot" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={editTeamForm.control}
+                  name="conference"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Conference</FormLabel>
+                      <FormControl>
+                        <Input {...field} data-testid="input-mm-edit-conference" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -574,35 +753,99 @@ export default function MarchMadnessAdminContent() {
                 />
               </div>
               <FormField
-                control={resultForm.control}
-                name="winningTeamId"
+                control={editTeamForm.control}
+                name="logoUrl"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Winner</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-mm-winner">
-                          <SelectValue placeholder="Select winner" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {selectedGame && (
-                          <>
-                            <SelectItem value={selectedGame.awayTeam.id}>{selectedGame.awayTeam.name}</SelectItem>
-                            <SelectItem value={selectedGame.homeTeam.id}>{selectedGame.homeTeam.name}</SelectItem>
-                          </>
-                        )}
-                      </SelectContent>
-                    </Select>
+                    <FormLabel>Logo URL</FormLabel>
+                    <FormControl>
+                      <Input placeholder="https://example.com/logo.png" {...field} data-testid="input-mm-edit-logo-url" />
+                    </FormControl>
                     <FormMessage />
+                    {field.value && (
+                      <img src={field.value} alt="Logo preview" className="h-12 w-12 object-contain rounded border mt-1" onError={(e) => (e.currentTarget.style.display = "none")} />
+                    )}
                   </FormItem>
                 )}
               />
-              <Button type="submit" className="w-full" disabled={updateResultMutation.isPending} data-testid="button-mm-submit-result">
-                {updateResultMutation.isPending ? "Updating..." : "Update Result"}
+              <Button type="submit" className="w-full" disabled={editTeamMutation.isPending} data-testid="button-mm-submit-edit-team">
+                {editTeamMutation.isPending ? "Saving..." : "Save Changes"}
               </Button>
             </form>
           </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Result Dialog */}
+      <Dialog open={resultDialogOpen} onOpenChange={setResultDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Enter Result</DialogTitle>
+          </DialogHeader>
+          {selectedGame && (
+            <Form {...resultForm}>
+              <form
+                onSubmit={resultForm.handleSubmit((data) => updateResultMutation.mutate({ ...data, id: selectedGame.id }))}
+                className="space-y-4"
+              >
+                <div className="text-sm text-muted-foreground text-center">
+                  {selectedGame.awayTeam.name} @ {selectedGame.homeTeam.name}
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={resultForm.control}
+                    name="awayScore"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{selectedGame.awayTeam.name} Score</FormLabel>
+                        <FormControl>
+                          <Input type="number" min="0" {...field} onChange={(e) => field.onChange(parseInt(e.target.value) || 0)} data-testid="input-mm-away-score" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={resultForm.control}
+                    name="homeScore"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{selectedGame.homeTeam.name} Score</FormLabel>
+                        <FormControl>
+                          <Input type="number" min="0" {...field} onChange={(e) => field.onChange(parseInt(e.target.value) || 0)} data-testid="input-mm-home-score" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+                <FormField
+                  control={resultForm.control}
+                  name="winningTeamId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Winner</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-mm-winner">
+                            <SelectValue placeholder="Select winner" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value={selectedGame.awayTeamId}>{selectedGame.awayTeam.name}</SelectItem>
+                          <SelectItem value={selectedGame.homeTeamId}>{selectedGame.homeTeam.name}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <Button type="submit" className="w-full" disabled={updateResultMutation.isPending} data-testid="button-mm-submit-result">
+                  {updateResultMutation.isPending ? "Saving..." : "Save Result"}
+                </Button>
+              </form>
+            </Form>
+          )}
         </DialogContent>
       </Dialog>
     </div>
