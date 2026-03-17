@@ -1,7 +1,5 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
-import { readFileSync } from "fs";
-import { join } from "path";
 import { storage } from "./storage";
 import { 
   loginSchema, 
@@ -1560,41 +1558,6 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Football-Weather get games error:", error);
       res.status(500).json({ message: "Failed to get games" });
-    }
-  });
-
-  app.post("/api/admin/seed-production", requireAdmin, async (req, res) => {
-    try {
-      const { pool } = await import("./db");
-      const seedPath = join(process.cwd(), "seed-data-clean.sql");
-      const sql = readFileSync(seedPath, "utf-8");
-      const statements = sql.split("\n").filter(line => line.trim().startsWith("INSERT") || line.trim().startsWith("SET") || line.trim().startsWith("SELECT pg_catalog"));
-      
-      let executed = 0;
-      let errors = 0;
-      const client = await pool.connect();
-      try {
-        for (const stmt of statements) {
-          try {
-            await client.query(stmt);
-            executed++;
-          } catch (e: any) {
-            if (e.code === '23505') {
-              // duplicate key - skip
-            } else {
-              errors++;
-              console.error("Seed error:", e.message, "Statement:", stmt.substring(0, 80));
-            }
-          }
-        }
-      } finally {
-        client.release();
-      }
-      
-      res.json({ message: `Seed complete. ${executed} statements executed, ${errors} errors.` });
-    } catch (error) {
-      console.error("Seed error:", error);
-      res.status(500).json({ message: "Seed failed" });
     }
   });
 
