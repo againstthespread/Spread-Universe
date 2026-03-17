@@ -45,4 +45,3 @@ integrations = ["javascript_database:1.0.0"]
 [userenv]
 
 [userenv.production]
-OVERRIDE_DATABASE_URL = "postgresql://postgres:password@helium/heliumdb?sslmode=disable"
