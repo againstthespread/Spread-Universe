@@ -46,6 +46,9 @@ export async function seedProductionIfEmpty() {
     await client.query("BEGIN");
 
     try {
+      await client.query("DELETE FROM marchmadness_rounds");
+      console.log("Cleared auto-initialized rounds to avoid conflicts.");
+
       let executed = 0;
 
       for (const stmt of statements) {
