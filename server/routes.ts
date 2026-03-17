@@ -1561,38 +1561,5 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/seed-data", requireAdmin, async (req, res) => {
-    try {
-      const { pool } = await import("./db");
-      const { statements } = req.body as { statements: string[] };
-      if (!Array.isArray(statements)) {
-        return res.status(400).json({ message: "statements array required" });
-      }
-      let executed = 0;
-      let skipped = 0;
-      const client = await pool.connect();
-      try {
-        for (const stmt of statements) {
-          try {
-            await client.query(stmt);
-            executed++;
-          } catch (e: any) {
-            if (e.code === '23505') {
-              skipped++;
-            } else {
-              console.error("Seed stmt error:", e.message);
-            }
-          }
-        }
-      } finally {
-        client.release();
-      }
-      res.json({ executed, skipped });
-    } catch (error) {
-      console.error("Seed error:", error);
-      res.status(500).json({ message: "Seed failed" });
-    }
-  });
-
   return httpServer;
 }
