@@ -1687,7 +1687,7 @@ export class DatabaseStorage implements IStorage {
     const numUsers = draftOrder.length;
     const totalPicks = numUsers * 4;
     const currentPickNumber = picks.length;
-    const isComplete = currentPickNumber >= totalPicks || league.draftStatus === "completed";
+    const isComplete = (numUsers > 0 && currentPickNumber >= totalPicks) || league.draftStatus === "completed";
 
     let currentPickUserId: string | null = null;
     if (!isComplete && draftOrder.length > 0 && league.draftStatus === "active") {
