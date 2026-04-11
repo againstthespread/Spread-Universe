@@ -2,7 +2,7 @@
 
 ## Overview
 
-Against The Spread is a unified sports betting platform that provides a single authentication hub for accessing multiple sports betting and fantasy sports sub-platforms. The application serves as a central account management system where users can register, login, and manage their profiles while accessing six different platforms: CrowdLine, March Madness ATS, FantasyStream, Gambling League, Postseason ATS, and Football Weather.
+Against The Spread is a unified sports betting platform that provides a single authentication hub for accessing multiple sports betting and fantasy sports sub-platforms. The application serves as a central account management system where users can register, login, and manage their profiles while accessing seven different platforms: CrowdLine, March Madness ATS, FantasyStream, Gambling League, Postseason ATS, Football Weather, and Golf Fantasy.
 
 The project follows a full-stack TypeScript architecture with React on the frontend and Express on the backend, using PostgreSQL for data persistence.
 
@@ -71,6 +71,15 @@ The `shared/` directory contains:
 - `postseason_games` - Playoff games by round (Wild Card→Super Bowl)
 - `postseason_picks` - User picks with escalating point values (125→1000)
 
+**Golf Fantasy Tables (snake-draft fantasy golf leagues):**
+- `golf_golfers` - 149 world-ranked golfers (seeded on startup)
+- `golf_tournaments` - Golf tournaments managed by admin
+- `golf_tournament_golfers` - Golfers assigned to a specific tournament (field)
+- `golf_golfer_scores` - Round scores per golfer per tournament (R1-R4)
+- `golf_leagues` - User-created fantasy leagues tied to a tournament
+- `golf_league_members` - League memberships
+- `golf_draft_picks` - Snake draft selections (pick number + golfer + user)
+
 ### API Structure
 
 **Authentication (`/api/auth/`):**
@@ -101,6 +110,25 @@ The `shared/` directory contains:
 
 **Football Weather (`/api/football-weather/`):**
 - Games with weather data and fantasy implications
+
+**Golf Fantasy (`/api/golf/`):**
+- `GET /api/golf/golfers` - List all golfers (optional ?tournamentId or ?excludeTournamentId)
+- `GET/POST /api/golf/golfers/:id` - Golfer detail and admin CRUD
+- `GET /api/golf/tournaments` - List tournaments with their golfer fields
+- `POST /api/golf/tournaments` - Admin: create tournament
+- `PATCH /api/golf/tournaments/:id/status` - Admin: set status (upcoming/active/completed)
+- `POST/DELETE /api/golf/tournaments/:id/golfers` - Admin: manage tournament field
+- `POST /api/golf/tournaments/:id/scores` - Admin: upsert round score for golfer
+- `POST /api/golf/leagues/join` - Join league by code (must be before /:id route)
+- `GET /api/golf/leagues` - User's leagues
+- `POST /api/golf/leagues` - Create league
+- `GET /api/golf/leagues/:id` - League detail (members must be member)
+- `POST /api/golf/leagues/:id/invite` - Commissioner: invite by username
+- `PATCH /api/golf/leagues/:id/draft-order` - Commissioner: set manual draft order
+- `POST /api/golf/leagues/:id/start-draft` - Commissioner: activate draft
+- `GET /api/golf/leagues/:id/draft` - Draft state (4s poll when active)
+- `POST /api/golf/leagues/:id/draft/pick` - Submit draft pick
+- `GET /api/golf/leagues/:id/standings` - League standings
 
 ### Design System
 The application follows documented design guidelines in `design_guidelines.md`:
@@ -154,6 +182,10 @@ The application follows documented design guidelines in `design_guidelines.md`:
 - `/gambling-league`, `/gambling-league/leagues/:id` - Betting leagues
 - `/postseason`, `/postseason/leaderboard`, `/postseason/history`, `/postseason/admin` - NFL playoff picks
 - `/footballweather` - Weather-based game analysis
+- `/golf` - Golf Fantasy hub (create/join leagues)
+- `/golf/leagues/:id` - League detail (members, join code, invite, start draft)
+- `/golf/leagues/:id/draft` - Live snake draft room (4s polling while active)
+- `/golf/leagues/:id/standings` - League standings
 
 ## Recent Changes
 
@@ -171,6 +203,16 @@ The application follows documented design guidelines in `design_guidelines.md`:
 - Added race condition prevention in auth-context using generation tracking to ignore stale responses
 - Used React's `flushSync` from react-dom to ensure synchronous state updates before navigation after login/register
 - Session persistence verified across page reloads via session cookies
+
+### Golf Fantasy Platform (Apr 2026)
+- Added Golf Fantasy as the 7th platform: snake-draft fantasy golf leagues
+- 149 world-ranked golfers seeded from official rankings CSV on server startup
+- Features: create/join leagues, snake draft (4-golfer roster per team), lower score wins
+- Commissioner workflow: create league → invite by username or share join code → set draft order → start draft
+- Admin panel: create tournaments, manage golfer field, enter round scores
+- Draft room polls every 4 seconds while active for real-time updates
+- Standings show total strokes per team (lower = better), updated as scores are entered
+- 7 new database tables: golf_golfers, golf_tournaments, golf_tournament_golfers, golf_golfer_scores, golf_leagues, golf_league_members, golf_draft_picks
 
 ### Admin Access
 - Admin is controlled via `isAdmin` boolean field on user accounts

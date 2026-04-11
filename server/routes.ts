@@ -20,6 +20,11 @@ import {
   insertPostseasonGameSchema,
   insertPostseasonPickSchema,
   updatePostseasonGameResultSchema,
+  insertGolfGolferSchema,
+  updateGolfGolferSchema,
+  insertGolfTournamentSchema,
+  insertGolfLeagueSchema,
+  insertGolfScoreSchema,
   type FantasyStreamGame,
   type FantasyStreamPlay,
 } from "@shared/schema";
@@ -445,6 +450,9 @@ export async function registerRoutes(
   // MarchMadness Routes
   // Initialize rounds on first access
   await storage.mm_initializeRounds();
+
+  // Golf Fantasy - seed golfers on startup
+  await storage.golf_seedGolfersIfEmpty();
 
   app.get("/api/marchmadness/teams", requireAuth, async (req, res) => {
     try {
@@ -1558,6 +1566,338 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Football-Weather get games error:", error);
       res.status(500).json({ message: "Failed to get games" });
+    }
+  });
+
+  // ─── Golf Fantasy Routes ─────────────────────────────────────────
+
+  // Golfers
+  app.get("/api/golf/golfers", async (req, res) => {
+    try {
+      const { tournamentId, excludeTournamentId } = req.query as Record<string, string>;
+      const golfers = await storage.golf_getGolfers({
+        tournamentId: tournamentId || undefined,
+        excludeTournamentId: excludeTournamentId || undefined,
+      });
+      res.json(golfers);
+    } catch (error) {
+      console.error("Golf get golfers error:", error);
+      res.status(500).json({ message: "Failed to get golfers" });
+    }
+  });
+
+  app.get("/api/golf/golfers/:id", async (req, res) => {
+    try {
+      const golfer = await storage.golf_getGolfer(req.params.id);
+      if (!golfer) return res.status(404).json({ message: "Golfer not found" });
+      res.json(golfer);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get golfer" });
+    }
+  });
+
+  app.post("/api/golf/golfers", requireAdmin, async (req, res) => {
+    try {
+      const result = insertGolfGolferSchema.safeParse(req.body);
+      if (!result.success) return res.status(400).json({ message: "Invalid data", errors: result.error.flatten() });
+      const golfer = await storage.golf_createGolfer(result.data);
+      res.status(201).json(golfer);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to create golfer" });
+    }
+  });
+
+  app.put("/api/golf/golfers/:id", requireAdmin, async (req, res) => {
+    try {
+      const result = updateGolfGolferSchema.safeParse(req.body);
+      if (!result.success) return res.status(400).json({ message: "Invalid data", errors: result.error.flatten() });
+      const golfer = await storage.golf_updateGolfer(req.params.id, result.data);
+      if (!golfer) return res.status(404).json({ message: "Golfer not found" });
+      res.json(golfer);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update golfer" });
+    }
+  });
+
+  // Tournaments
+  app.get("/api/golf/tournaments", requireAuth, async (req, res) => {
+    try {
+      const tournaments = await storage.golf_getTournaments();
+      const withGolfers = await Promise.all(
+        tournaments.map(async (t) => {
+          const golfers = await storage.golf_getTournamentGolfers(t.id);
+          return { ...t, golfers };
+        })
+      );
+      res.json(withGolfers);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get tournaments" });
+    }
+  });
+
+  app.get("/api/golf/tournaments/:id", requireAuth, async (req, res) => {
+    try {
+      const tournament = await storage.golf_getTournament(req.params.id);
+      if (!tournament) return res.status(404).json({ message: "Tournament not found" });
+      const golfers = await storage.golf_getTournamentGolfers(req.params.id);
+      res.json({ ...tournament, golfers });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get tournament" });
+    }
+  });
+
+  app.post("/api/golf/tournaments", requireAdmin, async (req, res) => {
+    try {
+      const result = insertGolfTournamentSchema.safeParse(req.body);
+      if (!result.success) return res.status(400).json({ message: "Invalid data", errors: result.error.flatten() });
+      const tournament = await storage.golf_createTournament(result.data);
+      res.status(201).json(tournament);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to create tournament" });
+    }
+  });
+
+  app.patch("/api/golf/tournaments/:id/status", requireAdmin, async (req, res) => {
+    try {
+      const { status } = req.body;
+      if (!["upcoming", "active", "completed"].includes(status)) {
+        return res.status(400).json({ message: "Invalid status" });
+      }
+      const tournament = await storage.golf_updateTournamentStatus(req.params.id, status);
+      if (!tournament) return res.status(404).json({ message: "Tournament not found" });
+      res.json(tournament);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update tournament status" });
+    }
+  });
+
+  app.post("/api/golf/tournaments/:id/golfers", requireAdmin, async (req, res) => {
+    try {
+      const { golferId } = req.body;
+      if (!golferId) return res.status(400).json({ message: "golferId required" });
+      await storage.golf_addGolferToTournament(req.params.id, golferId);
+      res.status(201).json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to add golfer to tournament" });
+    }
+  });
+
+  app.delete("/api/golf/tournaments/:id/golfers/:golferId", requireAdmin, async (req, res) => {
+    try {
+      await storage.golf_removeGolferFromTournament(req.params.id, req.params.golferId);
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to remove golfer from tournament" });
+    }
+  });
+
+  // Scores
+  app.get("/api/golf/tournaments/:id/scores", requireAuth, async (req, res) => {
+    try {
+      const scores = await storage.golf_getScores(req.params.id);
+      res.json(scores);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get scores" });
+    }
+  });
+
+  app.post("/api/golf/tournaments/:id/scores", requireAdmin, async (req, res) => {
+    try {
+      const result = insertGolfScoreSchema.safeParse(req.body);
+      if (!result.success) return res.status(400).json({ message: "Invalid data", errors: result.error.flatten() });
+      const score = await storage.golf_upsertScore(req.params.id, result.data.golferId, result.data.round, result.data.score);
+      res.json(score);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to upsert score" });
+    }
+  });
+
+  // Leagues - IMPORTANT: /join must come BEFORE /:id
+  app.post("/api/golf/leagues/join", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const { joinCode } = req.body;
+      if (!joinCode) return res.status(400).json({ message: "joinCode required" });
+      const league = await storage.golf_getLeagueByJoinCode(joinCode);
+      if (!league) return res.status(404).json({ message: "League not found" });
+
+      const isMember = await storage.golf_isLeagueMember(league.id, userId);
+      if (isMember) return res.status(400).json({ message: "Already a member" });
+
+      const members = await storage.golf_getLeagueMembers(league.id);
+      if (members.length >= league.maxSize) return res.status(400).json({ message: "League is full" });
+
+      if (league.draftStatus !== "pending") return res.status(400).json({ message: "Draft has already started" });
+
+      await storage.golf_addLeagueMember(league.id, userId);
+      res.json({ leagueId: league.id });
+    } catch (error) {
+      console.error("Golf join league error:", error);
+      res.status(500).json({ message: "Failed to join league" });
+    }
+  });
+
+  app.get("/api/golf/leagues", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const leagues = await storage.golf_getUserLeagues(userId);
+      res.json(leagues);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get leagues" });
+    }
+  });
+
+  app.post("/api/golf/leagues", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const result = insertGolfLeagueSchema.safeParse(req.body);
+      if (!result.success) return res.status(400).json({ message: "Invalid data", errors: result.error.flatten() });
+      const league = await storage.golf_createLeague(result.data, userId);
+      res.status(201).json(league);
+    } catch (error) {
+      console.error("Golf create league error:", error);
+      res.status(500).json({ message: "Failed to create league" });
+    }
+  });
+
+  app.get("/api/golf/leagues/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const detail = await storage.golf_getLeagueDetail(req.params.id);
+      if (!detail) return res.status(404).json({ message: "League not found" });
+
+      const isMember = await storage.golf_isLeagueMember(req.params.id, userId);
+      if (!isMember) return res.status(403).json({ message: "Not a member of this league" });
+
+      res.json(detail);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get league" });
+    }
+  });
+
+  app.post("/api/golf/leagues/:id/invite", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const league = await storage.golf_getLeague(req.params.id);
+      if (!league) return res.status(404).json({ message: "League not found" });
+      if (league.commissionerId !== userId) return res.status(403).json({ message: "Only commissioner can invite" });
+
+      const { username } = req.body;
+      if (!username) return res.status(400).json({ message: "username required" });
+
+      const invitedUser = await storage.getUserByUsername(username);
+      if (!invitedUser) return res.status(404).json({ message: "User not found" });
+
+      const isMember = await storage.golf_isLeagueMember(req.params.id, invitedUser.id);
+      if (isMember) return res.status(400).json({ message: "User already in league" });
+
+      const members = await storage.golf_getLeagueMembers(req.params.id);
+      if (members.length >= league.maxSize) return res.status(400).json({ message: "League is full" });
+
+      if (league.draftStatus !== "pending") return res.status(400).json({ message: "Draft has already started" });
+
+      await storage.golf_addLeagueMember(req.params.id, invitedUser.id);
+      res.json({ ok: true, username: invitedUser.username });
+    } catch (error) {
+      console.error("Golf invite error:", error);
+      res.status(500).json({ message: "Failed to invite user" });
+    }
+  });
+
+  app.patch("/api/golf/leagues/:id/draft-order", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const league = await storage.golf_getLeague(req.params.id);
+      if (!league) return res.status(404).json({ message: "League not found" });
+      if (league.commissionerId !== userId) return res.status(403).json({ message: "Only commissioner can set draft order" });
+
+      const { draftOrder } = req.body;
+      if (!Array.isArray(draftOrder)) return res.status(400).json({ message: "draftOrder must be an array" });
+
+      await storage.golf_updateLeague(req.params.id, { draftOrder });
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update draft order" });
+    }
+  });
+
+  app.post("/api/golf/leagues/:id/start-draft", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const league = await storage.golf_getLeague(req.params.id);
+      if (!league) return res.status(404).json({ message: "League not found" });
+      if (league.commissionerId !== userId) return res.status(403).json({ message: "Only commissioner can start draft" });
+      if (league.draftStatus !== "pending") return res.status(400).json({ message: "Draft already started" });
+
+      const members = await storage.golf_getLeagueMembers(req.params.id);
+      if (members.length < 2) return res.status(400).json({ message: "Need at least 2 members to start draft" });
+
+      const draftOrder = league.draftOrder ?? [];
+      if (draftOrder.length !== members.length) {
+        const memberIds = members.map(m => m.userId);
+        const shuffled = memberIds.sort(() => Math.random() - 0.5);
+        await storage.golf_updateLeague(req.params.id, { draftOrder: shuffled, draftStatus: "active" });
+      } else {
+        await storage.golf_updateLeague(req.params.id, { draftStatus: "active" });
+      }
+
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to start draft" });
+    }
+  });
+
+  // Draft
+  app.get("/api/golf/leagues/:id/draft", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const isMember = await storage.golf_isLeagueMember(req.params.id, userId);
+      if (!isMember) return res.status(403).json({ message: "Not a member of this league" });
+
+      const state = await storage.golf_getDraftState(req.params.id);
+      if (!state) return res.status(404).json({ message: "League not found" });
+      res.json(state);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get draft state" });
+    }
+  });
+
+  app.post("/api/golf/leagues/:id/draft/pick", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const { golferId } = req.body;
+      if (!golferId) return res.status(400).json({ message: "golferId required" });
+
+      const pick = await storage.golf_submitDraftPick(req.params.id, userId, golferId);
+      res.status(201).json(pick);
+    } catch (error: any) {
+      const msg = error?.message ?? "Failed to submit pick";
+      const status = ["Not your turn", "Draft is not active", "Golfer already drafted"].includes(msg) ? 400 : 500;
+      res.status(status).json({ message: msg });
+    }
+  });
+
+  // Standings
+  app.get("/api/golf/leagues/:id/standings", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const isMember = await storage.golf_isLeagueMember(req.params.id, userId);
+      if (!isMember) return res.status(403).json({ message: "Not a member of this league" });
+
+      const standings = await storage.golf_getLeagueStandings(req.params.id);
+      res.json(standings);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get standings" });
+    }
+  });
+
+  // Admin: all leagues
+  app.get("/api/golf/admin/leagues", requireAdmin, async (req, res) => {
+    try {
+      const allLeagues = await storage.golf_getTournaments();
+      res.json(allLeagues);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get leagues" });
     }
   });
 

@@ -15,6 +15,13 @@ import {
   gamblingLeagueMatchups,
   postseasonGames,
   postseasonPicks,
+  golfGolfers,
+  golfTournaments,
+  golfTournamentGolfers,
+  golfGolferScores,
+  golfLeagues,
+  golfLeagueMembers,
+  golfDraftPicks,
   POSTSEASON_ROUND_POINTS,
   POSTSEASON_ROUND_NAMES,
   type User, 
@@ -58,9 +65,23 @@ import {
   type PostseasonLeaderboardEntry,
   type PostseasonUserStats,
   type PostseasonRound,
+  type GolfGolfer,
+  type InsertGolfGolfer,
+  type UpdateGolfGolfer,
+  type GolfTournament,
+  type InsertGolfTournament,
+  type GolfGolferScore,
+  type GolfLeague,
+  type InsertGolfLeague,
+  type GolfLeagueMember,
+  type GolfDraftPick,
+  type GolfDraftPickWithDetails,
+  type GolfDraftState,
+  type GolfLeagueStandingEntry,
+  type GolfLeagueDetail,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, gt, gte, sql, desc, asc } from "drizzle-orm";
+import { eq, and, gt, gte, sql, desc, asc, inArray, not } from "drizzle-orm";
 
 export type CrowdlineLeaderboardEntry = {
   visitorId: string;
@@ -186,6 +207,40 @@ export interface IStorage {
   ps_getLeaderboard(): Promise<PostseasonLeaderboardEntry[]>;
   ps_getPickHistory(userId: string): Promise<PostseasonPickHistoryItem[]>;
   ps_getUserStats(userId: string): Promise<PostseasonUserStats | undefined>;
+
+  // Golf Fantasy methods
+  golf_seedGolfersIfEmpty(): Promise<void>;
+  golf_getGolfers(params?: { tournamentId?: string; excludeTournamentId?: string }): Promise<GolfGolfer[]>;
+  golf_getGolfer(id: string): Promise<GolfGolfer | undefined>;
+  golf_createGolfer(data: InsertGolfGolfer): Promise<GolfGolfer>;
+  golf_updateGolfer(id: string, data: UpdateGolfGolfer): Promise<GolfGolfer | undefined>;
+
+  golf_getTournaments(): Promise<GolfTournament[]>;
+  golf_getTournament(id: string): Promise<GolfTournament | undefined>;
+  golf_createTournament(data: InsertGolfTournament): Promise<GolfTournament>;
+  golf_updateTournamentStatus(id: string, status: string): Promise<GolfTournament | undefined>;
+  golf_getTournamentGolfers(tournamentId: string): Promise<GolfGolfer[]>;
+  golf_addGolferToTournament(tournamentId: string, golferId: string): Promise<void>;
+  golf_removeGolferFromTournament(tournamentId: string, golferId: string): Promise<void>;
+
+  golf_upsertScore(tournamentId: string, golferId: string, round: number, score: number): Promise<GolfGolferScore>;
+  golf_getScores(tournamentId: string): Promise<GolfGolferScore[]>;
+
+  golf_createLeague(data: InsertGolfLeague, commissionerId: string): Promise<GolfLeague>;
+  golf_getLeague(id: string): Promise<GolfLeague | undefined>;
+  golf_getLeagueDetail(id: string): Promise<GolfLeagueDetail | undefined>;
+  golf_getUserLeagues(userId: string): Promise<(GolfLeague & { tournament: GolfTournament })[]>;
+  golf_getLeagueByJoinCode(code: string): Promise<GolfLeague | undefined>;
+  golf_updateLeague(id: string, data: Partial<Pick<GolfLeague, 'draftStatus' | 'draftOrder'>>): Promise<GolfLeague | undefined>;
+  golf_isLeagueMember(leagueId: string, userId: string): Promise<boolean>;
+  golf_getLeagueMembers(leagueId: string): Promise<(GolfLeagueMember & { user: { id: string; username: string } })[]>;
+  golf_addLeagueMember(leagueId: string, userId: string): Promise<GolfLeagueMember>;
+
+  golf_getDraftState(leagueId: string): Promise<GolfDraftState | undefined>;
+  golf_submitDraftPick(leagueId: string, userId: string, golferId: string): Promise<GolfDraftPick>;
+  golf_getDraftPicks(leagueId: string): Promise<GolfDraftPickWithDetails[]>;
+
+  golf_getLeagueStandings(leagueId: string): Promise<GolfLeagueStandingEntry[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1202,6 +1257,522 @@ export class DatabaseStorage implements IStorage {
       rank: rank || leaderboard.length + 1,
       roundStats,
     };
+  }
+
+  // ─── Golf Fantasy ──────────────────────────────────────────────
+
+  async golf_seedGolfersIfEmpty(): Promise<void> {
+    const existing = await db.select({ id: golfGolfers.id }).from(golfGolfers).limit(1);
+    if (existing.length > 0) return;
+
+    const GOLFERS: { worldRank: number; firstName: string; lastName: string; country: string }[] = [
+      { worldRank: 1, firstName: "Scottie", lastName: "Scheffler", country: "United States" },
+      { worldRank: 2, firstName: "Rory", lastName: "McIlroy", country: "Northern Ireland" },
+      { worldRank: 3, firstName: "Cameron", lastName: "Young", country: "United States" },
+      { worldRank: 4, firstName: "Tommy", lastName: "Fleetwood", country: "England" },
+      { worldRank: 5, firstName: "J.J.", lastName: "Spaun", country: "United States" },
+      { worldRank: 6, firstName: "Matt", lastName: "Fitzpatrick", country: "England" },
+      { worldRank: 7, firstName: "Collin", lastName: "Morikawa", country: "United States" },
+      { worldRank: 8, firstName: "Robert", lastName: "MacIntyre", country: "Scotland" },
+      { worldRank: 9, firstName: "Justin", lastName: "Rose", country: "England" },
+      { worldRank: 10, firstName: "Xander", lastName: "Schauffele", country: "United States" },
+      { worldRank: 11, firstName: "Chris", lastName: "Gotterup", country: "United States" },
+      { worldRank: 12, firstName: "Russell", lastName: "Henley", country: "United States" },
+      { worldRank: 13, firstName: "Sepp", lastName: "Straka", country: "Austria" },
+      { worldRank: 14, firstName: "Hideki", lastName: "Matsuyama", country: "Japan" },
+      { worldRank: 15, firstName: "Justin", lastName: "Thomas", country: "United States" },
+      { worldRank: 16, firstName: "Ben", lastName: "Griffin", country: "United States" },
+      { worldRank: 17, firstName: "Ludvig", lastName: "Aberg", country: "Sweden" },
+      { worldRank: 18, firstName: "Jacob", lastName: "Bridgeman", country: "United States" },
+      { worldRank: 19, firstName: "Alex", lastName: "Noren", country: "Sweden" },
+      { worldRank: 20, firstName: "Harris", lastName: "English", country: "United States" },
+      { worldRank: 21, firstName: "Akshay", lastName: "Bhatia", country: "United States" },
+      { worldRank: 22, firstName: "Viktor", lastName: "Hovland", country: "Norway" },
+      { worldRank: 23, firstName: "Patrick", lastName: "Reed", country: "United States" },
+      { worldRank: 24, firstName: "Bryson", lastName: "DeChambeau", country: "United States" },
+      { worldRank: 25, firstName: "Min Woo", lastName: "Lee", country: "Australia" },
+      { worldRank: 26, firstName: "Keegan", lastName: "Bradley", country: "United States" },
+      { worldRank: 27, firstName: "Maverick", lastName: "McNealy", country: "United States" },
+      { worldRank: 28, firstName: "Si Woo", lastName: "Kim", country: "South Korea" },
+      { worldRank: 29, firstName: "Ryan", lastName: "Gerard", country: "United States" },
+      { worldRank: 30, firstName: "Jon", lastName: "Rahm", country: "Spain" },
+      { worldRank: 31, firstName: "Tyrrell", lastName: "Hatton", country: "England" },
+      { worldRank: 32, firstName: "Shane", lastName: "Lowry", country: "Ireland" },
+      { worldRank: 33, firstName: "Sam", lastName: "Burns", country: "United States" },
+      { worldRank: 34, firstName: "Kurt", lastName: "Kitayama", country: "United States" },
+      { worldRank: 35, firstName: "Patrick", lastName: "Cantlay", country: "United States" },
+      { worldRank: 36, firstName: "Nicolai", lastName: "Hojgaard", country: "Denmark" },
+      { worldRank: 37, firstName: "Marco", lastName: "Penge", country: "England" },
+      { worldRank: 38, firstName: "Daniel", lastName: "Berger", country: "United States" },
+      { worldRank: 39, firstName: "Aaron", lastName: "Rai", country: "England" },
+      { worldRank: 40, firstName: "Nicolas", lastName: "Echavarria", country: "Colombia" },
+      { worldRank: 41, firstName: "Jason", lastName: "Day", country: "Australia" },
+      { worldRank: 42, firstName: "Jake", lastName: "Knapp", country: "United States" },
+      { worldRank: 43, firstName: "Michael", lastName: "Kim", country: "United States" },
+      { worldRank: 44, firstName: "Corey", lastName: "Conners", country: "Canada" },
+      { worldRank: 45, firstName: "Samuel", lastName: "Stevens", country: "United States" },
+      { worldRank: 46, firstName: "Kristoffer", lastName: "Reitan", country: "Norway" },
+      { worldRank: 47, firstName: "Michael", lastName: "Brennan", country: "United States" },
+      { worldRank: 48, firstName: "Andrew", lastName: "Novak", country: "United States" },
+      { worldRank: 49, firstName: "Matt", lastName: "McCarty", country: "United States" },
+      { worldRank: 50, firstName: "Brian", lastName: "Harman", country: "United States" },
+      { worldRank: 51, firstName: "Ryan", lastName: "Fox", country: "New Zealand" },
+      { worldRank: 52, firstName: "Gary", lastName: "Woodland", country: "United States" },
+      { worldRank: 53, firstName: "Adam", lastName: "Scott", country: "Australia" },
+      { worldRank: 54, firstName: "Pierceson", lastName: "Coody", country: "United States" },
+      { worldRank: 55, firstName: "Ryo", lastName: "Hisatsune", country: "Japan" },
+      { worldRank: 56, firstName: "Sami", lastName: "Valimaki", country: "Finland" },
+      { worldRank: 57, firstName: "Rasmus", lastName: "Hojgaard", country: "Denmark" },
+      { worldRank: 58, firstName: "Michael", lastName: "Thorbjornsen", country: "United States" },
+      { worldRank: 59, firstName: "Max", lastName: "Greyserman", country: "United States" },
+      { worldRank: 60, firstName: "Thomas", lastName: "Detry", country: "Belgium" },
+      { worldRank: 61, firstName: "Jordan", lastName: "Spieth", country: "United States" },
+      { worldRank: 62, firstName: "Harry", lastName: "Hall", country: "England" },
+      { worldRank: 63, firstName: "Jayden", lastName: "Schaper", country: "South Africa" },
+      { worldRank: 64, firstName: "John", lastName: "Keefer", country: "United States" },
+      { worldRank: 65, firstName: "Rickie", lastName: "Fowler", country: "United States" },
+      { worldRank: 66, firstName: "Matt", lastName: "Wallace", country: "England" },
+      { worldRank: 67, firstName: "Nick", lastName: "Taylor", country: "Canada" },
+      { worldRank: 68, firstName: "Jordan", lastName: "Smith", country: "England" },
+      { worldRank: 69, firstName: "Rasmus", lastName: "Neergaard-Petersen", country: "Denmark" },
+      { worldRank: 70, firstName: "Casey", lastName: "Jarvis", country: "South Africa" },
+      { worldRank: 71, firstName: "Sungjae", lastName: "Im", country: "South Korea" },
+      { worldRank: 72, firstName: "Patrick", lastName: "Rodgers", country: "United States" },
+      { worldRank: 73, firstName: "Sahith", lastName: "Theegala", country: "United States" },
+      { worldRank: 74, firstName: "Taylor", lastName: "Pendrith", country: "Canada" },
+      { worldRank: 75, firstName: "Max", lastName: "McGreevy", country: "United States" },
+      { worldRank: 76, firstName: "Bud", lastName: "Cauley", country: "United States" },
+      { worldRank: 77, firstName: "Aldrich", lastName: "Potgieter", country: "South Africa" },
+      { worldRank: 78, firstName: "Wyndham", lastName: "Clark", country: "United States" },
+      { worldRank: 79, firstName: "J.T.", lastName: "Poston", country: "United States" },
+      { worldRank: 80, firstName: "Richard", lastName: "Hoey", country: "Philippines" },
+      { worldRank: 81, firstName: "David", lastName: "Puig", country: "Spain" },
+      { worldRank: 82, firstName: "John", lastName: "Parry", country: "England" },
+      { worldRank: 83, firstName: "Elvis", lastName: "Smylie", country: "Australia" },
+      { worldRank: 84, firstName: "Haotong", lastName: "Li", country: "China" },
+      { worldRank: 85, firstName: "Garrick", lastName: "Higgo", country: "South Africa" },
+      { worldRank: 86, firstName: "Austin", lastName: "Smotherman", country: "United States" },
+      { worldRank: 87, firstName: "Ricky", lastName: "Castillo", country: "United States" },
+      { worldRank: 88, firstName: "David", lastName: "Lipsky", country: "United States" },
+      { worldRank: 89, firstName: "Matti", lastName: "Schmid", country: "Germany" },
+      { worldRank: 90, firstName: "Christiaan", lastName: "Bezuidenhout", country: "South Africa" },
+      { worldRank: 91, firstName: "Daniel", lastName: "Hillier", country: "New Zealand" },
+      { worldRank: 92, firstName: "Daniel", lastName: "Brown", country: "England" },
+      { worldRank: 93, firstName: "Andrew", lastName: "Putnam", country: "United States" },
+      { worldRank: 94, firstName: "Billy", lastName: "Horschel", country: "United States" },
+      { worldRank: 95, firstName: "Denny", lastName: "McCarthy", country: "United States" },
+      { worldRank: 96, firstName: "Lucas", lastName: "Glover", country: "United States" },
+      { worldRank: 97, firstName: "Adrien", lastName: "Saddier", country: "France" },
+      { worldRank: 98, firstName: "Chris", lastName: "Kirk", country: "United States" },
+      { worldRank: 99, firstName: "Stephan", lastName: "Jaeger", country: "Germany" },
+      { worldRank: 100, firstName: "Thriston", lastName: "Lawrence", country: "South Africa" },
+      { worldRank: 101, firstName: "Laurie", lastName: "Canter", country: "England" },
+      { worldRank: 102, firstName: "Chun-an", lastName: "Yu", country: "Taiwan" },
+      { worldRank: 103, firstName: "Thorbjorn", lastName: "Olesen", country: "Denmark" },
+      { worldRank: 104, firstName: "Andy", lastName: "Sullivan", country: "England" },
+      { worldRank: 105, firstName: "Tom", lastName: "McKibbin", country: "Northern Ireland" },
+      { worldRank: 106, firstName: "Alex", lastName: "Smalley", country: "United States" },
+      { worldRank: 107, firstName: "Jhonattan", lastName: "Vegas", country: "Venezuela" },
+      { worldRank: 108, firstName: "Keith", lastName: "Mitchell", country: "United States" },
+      { worldRank: 109, firstName: "Angel", lastName: "Ayora", country: "Spain" },
+      { worldRank: 110, firstName: "Tom", lastName: "Hoge", country: "United States" },
+      { worldRank: 111, firstName: "Tony", lastName: "Finau", country: "United States" },
+      { worldRank: 112, firstName: "Brian", lastName: "Campbell", country: "United States" },
+      { worldRank: 113, firstName: "Emiliano", lastName: "Grillo", country: "Argentina" },
+      { worldRank: 114, firstName: "Ian", lastName: "Holt", country: "United States" },
+      { worldRank: 115, firstName: "Chandler", lastName: "Blanchet", country: "United States" },
+      { worldRank: 116, firstName: "McClure", lastName: "Meissner", country: "United States" },
+      { worldRank: 117, firstName: "Davis", lastName: "Thompson", country: "United States" },
+      { worldRank: 118, firstName: "Eric", lastName: "Cole", country: "United States" },
+      { worldRank: 119, firstName: "Sudarshan", lastName: "Yellamaraju", country: "Canada" },
+      { worldRank: 120, firstName: "Davis", lastName: "Riley", country: "United States" },
+      { worldRank: 121, firstName: "Mackenzie", lastName: "Hughes", country: "Canada" },
+      { worldRank: 122, firstName: "William", lastName: "Mouw", country: "United States" },
+      { worldRank: 123, firstName: "Vincent", lastName: "Whaley", country: "United States" },
+      { worldRank: 124, firstName: "Keita", lastName: "Nakajima", country: "Japan" },
+      { worldRank: 125, firstName: "Eugenio", lastName: "Chacarra", country: "Spain" },
+      { worldRank: 126, firstName: "Takumi", lastName: "Kanaya", country: "Japan" },
+      { worldRank: 127, firstName: "Nacho", lastName: "Elvira", country: "Spain" },
+      { worldRank: 128, firstName: "Shaun", lastName: "Norris", country: "South Africa" },
+      { worldRank: 129, firstName: "Dan", lastName: "Bradbury", country: "England" },
+      { worldRank: 130, firstName: "Calum", lastName: "Hill", country: "Scotland" },
+      { worldRank: 131, firstName: "Tom", lastName: "Kim", country: "South Korea" },
+      { worldRank: 132, firstName: "Seonghyeon", lastName: "Kim", country: "South Korea" },
+      { worldRank: 133, firstName: "Lee", lastName: "Hodges", country: "United States" },
+      { worldRank: 134, firstName: "Travis", lastName: "Smyth", country: "Australia" },
+      { worldRank: 135, firstName: "Kevin", lastName: "Roy", country: "United States" },
+      { worldRank: 136, firstName: "Byeong Hun", lastName: "An", country: "South Korea" },
+      { worldRank: 137, firstName: "Kazuki", lastName: "Higa", country: "Japan" },
+      { worldRank: 138, firstName: "Steven", lastName: "Fisk", country: "United States" },
+      { worldRank: 139, firstName: "Jacob Skov", lastName: "Olesen", country: "Denmark" },
+      { worldRank: 140, firstName: "Alex", lastName: "Fitzpatrick", country: "England" },
+      { worldRank: 141, firstName: "Joe", lastName: "Highsmith", country: "United States" },
+      { worldRank: 142, firstName: "Martin", lastName: "Couvra", country: "France" },
+      { worldRank: 143, firstName: "Chad", lastName: "Ramey", country: "United States" },
+      { worldRank: 144, firstName: "Adrien", lastName: "Dumont de Chassart", country: "Belgium" },
+      { worldRank: 145, firstName: "Taylor", lastName: "Moore", country: "United States" },
+      { worldRank: 146, firstName: "Joakim", lastName: "Lagergren", country: "Sweden" },
+      { worldRank: 147, firstName: "Peter", lastName: "Uihlein", country: "United States" },
+      { worldRank: 148, firstName: "Adam", lastName: "Schenk", country: "United States" },
+      { worldRank: 149, firstName: "JC", lastName: "Ritchie", country: "South Africa" },
+    ];
+
+    await db.insert(golfGolfers).values(GOLFERS);
+    console.log(`Seeded ${GOLFERS.length} golf golfers`);
+  }
+
+  async golf_getGolfers(params?: { tournamentId?: string; excludeTournamentId?: string }): Promise<GolfGolfer[]> {
+    if (params?.tournamentId) {
+      const tgRows = await db.select().from(golfTournamentGolfers)
+        .where(eq(golfTournamentGolfers.tournamentId, params.tournamentId));
+      const ids = tgRows.map(r => r.golferId);
+      if (ids.length === 0) return [];
+      return await db.select().from(golfGolfers)
+        .where(inArray(golfGolfers.id, ids))
+        .orderBy(asc(golfGolfers.worldRank));
+    }
+    if (params?.excludeTournamentId) {
+      const tgRows = await db.select().from(golfTournamentGolfers)
+        .where(eq(golfTournamentGolfers.tournamentId, params.excludeTournamentId));
+      const ids = tgRows.map(r => r.golferId);
+      if (ids.length === 0) {
+        return await db.select().from(golfGolfers).orderBy(asc(golfGolfers.worldRank));
+      }
+      return await db.select().from(golfGolfers)
+        .where(not(inArray(golfGolfers.id, ids)))
+        .orderBy(asc(golfGolfers.worldRank));
+    }
+    return await db.select().from(golfGolfers).orderBy(asc(golfGolfers.worldRank));
+  }
+
+  async golf_getGolfer(id: string): Promise<GolfGolfer | undefined> {
+    const [g] = await db.select().from(golfGolfers).where(eq(golfGolfers.id, id));
+    return g || undefined;
+  }
+
+  async golf_createGolfer(data: InsertGolfGolfer): Promise<GolfGolfer> {
+    const [g] = await db.insert(golfGolfers).values(data).returning();
+    return g;
+  }
+
+  async golf_updateGolfer(id: string, data: UpdateGolfGolfer): Promise<GolfGolfer | undefined> {
+    const [g] = await db.update(golfGolfers).set(data).where(eq(golfGolfers.id, id)).returning();
+    return g || undefined;
+  }
+
+  async golf_getTournaments(): Promise<GolfTournament[]> {
+    return await db.select().from(golfTournaments).orderBy(desc(golfTournaments.startDate));
+  }
+
+  async golf_getTournament(id: string): Promise<GolfTournament | undefined> {
+    const [t] = await db.select().from(golfTournaments).where(eq(golfTournaments.id, id));
+    return t || undefined;
+  }
+
+  async golf_createTournament(data: InsertGolfTournament): Promise<GolfTournament> {
+    const [t] = await db.insert(golfTournaments).values(data).returning();
+    return t;
+  }
+
+  async golf_updateTournamentStatus(id: string, status: string): Promise<GolfTournament | undefined> {
+    const [t] = await db.update(golfTournaments).set({ status }).where(eq(golfTournaments.id, id)).returning();
+    return t || undefined;
+  }
+
+  async golf_getTournamentGolfers(tournamentId: string): Promise<GolfGolfer[]> {
+    return this.golf_getGolfers({ tournamentId });
+  }
+
+  async golf_addGolferToTournament(tournamentId: string, golferId: string): Promise<void> {
+    await db.insert(golfTournamentGolfers).values({ tournamentId, golferId }).onConflictDoNothing();
+  }
+
+  async golf_removeGolferFromTournament(tournamentId: string, golferId: string): Promise<void> {
+    await db.delete(golfTournamentGolfers).where(
+      and(
+        eq(golfTournamentGolfers.tournamentId, tournamentId),
+        eq(golfTournamentGolfers.golferId, golferId)
+      )
+    );
+  }
+
+  async golf_upsertScore(tournamentId: string, golferId: string, round: number, score: number): Promise<GolfGolferScore> {
+    const [existing] = await db.select().from(golfGolferScores).where(
+      and(
+        eq(golfGolferScores.tournamentId, tournamentId),
+        eq(golfGolferScores.golferId, golferId),
+        eq(golfGolferScores.round, round)
+      )
+    );
+    if (existing) {
+      const [updated] = await db.update(golfGolferScores)
+        .set({ score })
+        .where(eq(golfGolferScores.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(golfGolferScores).values({ tournamentId, golferId, round, score }).returning();
+    return created;
+  }
+
+  async golf_getScores(tournamentId: string): Promise<GolfGolferScore[]> {
+    return await db.select().from(golfGolferScores).where(eq(golfGolferScores.tournamentId, tournamentId));
+  }
+
+  private generateJoinCode(): string {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let code = "";
+    for (let i = 0; i < 6; i++) {
+      code += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return code;
+  }
+
+  private snakePickUser(draftOrder: string[], pickIndex: number): string {
+    const n = draftOrder.length;
+    const round = Math.floor(pickIndex / n);
+    const position = pickIndex % n;
+    return round % 2 === 0 ? draftOrder[position] : draftOrder[n - 1 - position];
+  }
+
+  async golf_createLeague(data: InsertGolfLeague, commissionerId: string): Promise<GolfLeague> {
+    let joinCode = this.generateJoinCode();
+    let attempts = 0;
+    while (attempts < 10) {
+      const existing = await this.golf_getLeagueByJoinCode(joinCode);
+      if (!existing) break;
+      joinCode = this.generateJoinCode();
+      attempts++;
+    }
+
+    const [league] = await db.insert(golfLeagues).values({
+      ...data,
+      commissionerId,
+      joinCode,
+      draftStatus: "pending",
+      draftOrder: [],
+    }).returning();
+
+    await db.insert(golfLeagueMembers).values({ leagueId: league.id, userId: commissionerId });
+
+    if (data.draftOrderType === "random") {
+      await db.update(golfLeagues)
+        .set({ draftOrder: [commissionerId] })
+        .where(eq(golfLeagues.id, league.id));
+      const [updated] = await db.select().from(golfLeagues).where(eq(golfLeagues.id, league.id));
+      return updated;
+    }
+
+    return league;
+  }
+
+  async golf_getLeague(id: string): Promise<GolfLeague | undefined> {
+    const [l] = await db.select().from(golfLeagues).where(eq(golfLeagues.id, id));
+    return l || undefined;
+  }
+
+  async golf_getLeagueDetail(id: string): Promise<GolfLeagueDetail | undefined> {
+    const league = await this.golf_getLeague(id);
+    if (!league) return undefined;
+
+    const tournament = await this.golf_getTournament(league.tournamentId);
+    if (!tournament) return undefined;
+
+    const members = await this.golf_getLeagueMembers(id);
+
+    return {
+      ...league,
+      tournament,
+      members,
+    };
+  }
+
+  async golf_getUserLeagues(userId: string): Promise<(GolfLeague & { tournament: GolfTournament })[]> {
+    const memberships = await db.select().from(golfLeagueMembers).where(eq(golfLeagueMembers.userId, userId));
+    const result: (GolfLeague & { tournament: GolfTournament })[] = [];
+    for (const m of memberships) {
+      const league = await this.golf_getLeague(m.leagueId);
+      if (!league) continue;
+      const tournament = await this.golf_getTournament(league.tournamentId);
+      if (!tournament) continue;
+      result.push({ ...league, tournament });
+    }
+    return result;
+  }
+
+  async golf_getLeagueByJoinCode(code: string): Promise<GolfLeague | undefined> {
+    const [l] = await db.select().from(golfLeagues).where(eq(golfLeagues.joinCode, code.toUpperCase()));
+    return l || undefined;
+  }
+
+  async golf_updateLeague(id: string, data: Partial<Pick<GolfLeague, 'draftStatus' | 'draftOrder'>>): Promise<GolfLeague | undefined> {
+    const [l] = await db.update(golfLeagues).set(data).where(eq(golfLeagues.id, id)).returning();
+    return l || undefined;
+  }
+
+  async golf_isLeagueMember(leagueId: string, userId: string): Promise<boolean> {
+    const [m] = await db.select().from(golfLeagueMembers).where(
+      and(eq(golfLeagueMembers.leagueId, leagueId), eq(golfLeagueMembers.userId, userId))
+    );
+    return !!m;
+  }
+
+  async golf_getLeagueMembers(leagueId: string): Promise<(GolfLeagueMember & { user: { id: string; username: string } })[]> {
+    const members = await db.select().from(golfLeagueMembers).where(eq(golfLeagueMembers.leagueId, leagueId));
+    const result: (GolfLeagueMember & { user: { id: string; username: string } })[] = [];
+    for (const m of members) {
+      const user = await this.getUser(m.userId);
+      if (user) {
+        result.push({ ...m, user: { id: user.id, username: user.username } });
+      }
+    }
+    return result;
+  }
+
+  async golf_addLeagueMember(leagueId: string, userId: string): Promise<GolfLeagueMember> {
+    const [m] = await db.insert(golfLeagueMembers).values({ leagueId, userId }).returning();
+
+    const league = await this.golf_getLeague(leagueId);
+    if (league && league.draftOrderType === "random") {
+      const currentOrder = league.draftOrder ?? [];
+      if (!currentOrder.includes(userId)) {
+        const newOrder = [...currentOrder, userId];
+        const shuffled = newOrder.sort(() => Math.random() - 0.5);
+        await this.golf_updateLeague(leagueId, { draftOrder: shuffled });
+      }
+    }
+
+    return m;
+  }
+
+  async golf_getDraftPicks(leagueId: string): Promise<GolfDraftPickWithDetails[]> {
+    const picks = await db.select().from(golfDraftPicks)
+      .where(eq(golfDraftPicks.leagueId, leagueId))
+      .orderBy(asc(golfDraftPicks.pickNumber));
+    const result: GolfDraftPickWithDetails[] = [];
+    for (const pick of picks) {
+      const golfer = await this.golf_getGolfer(pick.golferId);
+      const user = await this.getUser(pick.userId);
+      if (golfer && user) {
+        result.push({ ...pick, golfer, user: { id: user.id, username: user.username } });
+      }
+    }
+    return result;
+  }
+
+  async golf_getDraftState(leagueId: string): Promise<GolfDraftState | undefined> {
+    const league = await this.golf_getLeague(leagueId);
+    if (!league) return undefined;
+
+    const members = await this.golf_getLeagueMembers(leagueId);
+    const draftOrder = league.draftOrder ?? [];
+    const draftOrderWithNames = draftOrder.map(uid => {
+      const m = members.find(m => m.userId === uid);
+      return { userId: uid, username: m?.user.username ?? uid };
+    });
+
+    const picks = await this.golf_getDraftPicks(leagueId);
+    const numUsers = draftOrder.length;
+    const totalPicks = numUsers * 4;
+    const currentPickNumber = picks.length;
+    const isComplete = currentPickNumber >= totalPicks || league.draftStatus === "completed";
+
+    let currentPickUserId: string | null = null;
+    if (!isComplete && draftOrder.length > 0 && league.draftStatus === "active") {
+      currentPickUserId = this.snakePickUser(draftOrder, currentPickNumber);
+    }
+
+    const draftedGolferIds = new Set(picks.map(p => p.golferId));
+    const tournamentGolfers = await this.golf_getTournamentGolfers(league.tournamentId);
+    const availableGolfers = tournamentGolfers.filter(g => !draftedGolferIds.has(g.id));
+
+    return {
+      league,
+      picks,
+      currentPickUserId,
+      currentPickNumber,
+      availableGolfers,
+      isComplete,
+      draftOrder: draftOrderWithNames,
+    };
+  }
+
+  async golf_submitDraftPick(leagueId: string, userId: string, golferId: string): Promise<GolfDraftPick> {
+    const league = await this.golf_getLeague(leagueId);
+    if (!league) throw new Error("League not found");
+    if (league.draftStatus !== "active") throw new Error("Draft is not active");
+
+    const draftOrder = league.draftOrder ?? [];
+    const picks = await db.select().from(golfDraftPicks).where(eq(golfDraftPicks.leagueId, leagueId));
+    const pickNumber = picks.length;
+    const expectedUser = this.snakePickUser(draftOrder, pickNumber);
+
+    if (expectedUser !== userId) throw new Error("Not your turn");
+
+    const alreadyDrafted = picks.find(p => p.golferId === golferId);
+    if (alreadyDrafted) throw new Error("Golfer already drafted");
+
+    const [pick] = await db.insert(golfDraftPicks).values({
+      leagueId,
+      userId,
+      golferId,
+      pickNumber,
+    }).returning();
+
+    const totalPicks = draftOrder.length * 4;
+    if (picks.length + 1 >= totalPicks) {
+      await this.golf_updateLeague(leagueId, { draftStatus: "completed" });
+    }
+
+    return pick;
+  }
+
+  async golf_getLeagueStandings(leagueId: string): Promise<GolfLeagueStandingEntry[]> {
+    const league = await this.golf_getLeague(leagueId);
+    if (!league) return [];
+
+    const members = await this.golf_getLeagueMembers(leagueId);
+    const picks = await this.golf_getDraftPicks(leagueId);
+    const scores = await this.golf_getScores(league.tournamentId);
+
+    const standings: GolfLeagueStandingEntry[] = [];
+
+    for (const member of members) {
+      const memberPicks = picks.filter(p => p.userId === member.userId);
+      const roster = memberPicks.map(pick => {
+        const golferScores = scores
+          .filter(s => s.golferId === pick.golferId)
+          .map(s => ({ round: s.round, score: s.score }))
+          .sort((a, b) => a.round - b.round);
+        const totalScore = golferScores.reduce((sum, s) => sum + s.score, 0);
+        return {
+          golfer: pick.golfer,
+          scores: golferScores,
+          totalScore,
+        };
+      });
+
+      const hasAnyScore = roster.some(r => r.scores.length > 0);
+      const totalScore = hasAnyScore
+        ? roster.reduce((sum, r) => sum + r.totalScore, 0)
+        : null;
+
+      standings.push({
+        userId: member.userId,
+        username: member.user.username,
+        roster,
+        totalScore,
+      });
+    }
+
+    standings.sort((a, b) => {
+      if (a.totalScore === null && b.totalScore === null) return 0;
+      if (a.totalScore === null) return 1;
+      if (b.totalScore === null) return -1;
+      return a.totalScore - b.totalScore;
+    });
+
+    return standings;
   }
 }
 

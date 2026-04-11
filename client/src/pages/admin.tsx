@@ -4,12 +4,13 @@ import { useAuth } from "@/lib/auth-context";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Users, Trophy, Tv, Target, Cloud, BarChart3 } from "lucide-react";
+import { Loader2, Users, Trophy, Tv, Target, Cloud, BarChart3, Flag } from "lucide-react";
 
 import CrowdlineAdminContent from "./crowdline/admin-content";
 import MarchMadnessAdminContent from "./marchmadness/admin-content";
 import PostseasonAdminContent from "./postseason/admin-content";
 import GamblingLeagueAdminContent from "./gambling-league/admin-content";
+import GolfAdminContent from "./golf/admin-content";
 
 export default function AdminPanel() {
   const { user, isLoading } = useAuth();
@@ -44,7 +45,7 @@ export default function AdminPanel() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-2 md:grid-cols-3 lg:grid-cols-6 h-auto gap-1" data-testid="tabs-admin-platforms">
+        <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 lg:grid-cols-7 h-auto gap-1" data-testid="tabs-admin-platforms">
           <TabsTrigger value="crowdline" className="flex items-center gap-2" data-testid="tab-crowdline">
             <Users className="h-4 w-4" />
             <span className="hidden sm:inline">Crowdline</span>
@@ -68,6 +69,10 @@ export default function AdminPanel() {
           <TabsTrigger value="footballWeather" className="flex items-center gap-2" data-testid="tab-football-weather">
             <Cloud className="h-4 w-4" />
             <span className="hidden sm:inline">Football Weather</span>
+          </TabsTrigger>
+          <TabsTrigger value="golf" className="flex items-center gap-2" data-testid="tab-golf">
+            <Flag className="h-4 w-4" />
+            <span className="hidden sm:inline">Golf Fantasy</span>
           </TabsTrigger>
         </TabsList>
 
@@ -183,6 +188,24 @@ export default function AdminPanel() {
                 <p className="text-lg font-medium mb-2">Football Weather Admin Coming Soon</p>
                 <p className="text-sm">Weather data source configuration and stadium settings will be available here.</p>
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="golf">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Flag className="h-5 w-5" />
+                  Golf Fantasy Admin
+                </CardTitle>
+                <CardDescription>Manage tournaments, golfers, and scores</CardDescription>
+              </div>
+              <Badge variant="outline">Fantasy Golf</Badge>
+            </CardHeader>
+            <CardContent>
+              <GolfAdminContent />
             </CardContent>
           </Card>
         </TabsContent>

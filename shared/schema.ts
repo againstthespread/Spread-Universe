@@ -695,6 +695,155 @@ export const TEAM_STADIUMS: Record<string, string> = {
   "WSH": "Northwest Stadium",
 };
 
+// Golf Fantasy Tables
+export const golfGolfers = pgTable("golf_golfers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  worldRank: integer("world_rank").notNull(),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  country: text("country").notNull(),
+  photoUrl: text("photo_url"),
+});
+
+export const golfTournaments = pgTable("golf_tournaments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  status: text("status").notNull().default("upcoming"),
+  startDate: timestamp("start_date").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const golfTournamentGolfers = pgTable("golf_tournament_golfers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tournamentId: varchar("tournament_id").notNull().references(() => golfTournaments.id, { onDelete: "cascade" }),
+  golferId: varchar("golfer_id").notNull().references(() => golfGolfers.id, { onDelete: "cascade" }),
+}, (table) => ({
+  tournamentGolferUnique: unique("golf_tournament_golfer_unique").on(table.tournamentId, table.golferId),
+}));
+
+export const golfGolferScores = pgTable("golf_golfer_scores", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tournamentId: varchar("tournament_id").notNull().references(() => golfTournaments.id, { onDelete: "cascade" }),
+  golferId: varchar("golfer_id").notNull().references(() => golfGolfers.id, { onDelete: "cascade" }),
+  round: integer("round").notNull(),
+  score: integer("score").notNull(),
+}, (table) => ({
+  tournamentGolferRoundUnique: unique("golf_scores_unique").on(table.tournamentId, table.golferId, table.round),
+}));
+
+export const golfLeagues = pgTable("golf_leagues", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tournamentId: varchar("tournament_id").notNull().references(() => golfTournaments.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  commissionerId: varchar("commissioner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  maxSize: integer("max_size").notNull(),
+  joinCode: varchar("join_code", { length: 8 }).notNull().unique(),
+  draftStartTime: timestamp("draft_start_time").notNull(),
+  draftStatus: text("draft_status").notNull().default("pending"),
+  draftOrderType: text("draft_order_type").notNull().default("random"),
+  draftOrder: text("draft_order").array(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const golfLeagueMembers = pgTable("golf_league_members", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leagueId: varchar("league_id").notNull().references(() => golfLeagues.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  joinedAt: timestamp("joined_at").defaultNow(),
+}, (table) => ({
+  golfLeagueUserUnique: unique("golf_league_user_unique").on(table.leagueId, table.userId),
+}));
+
+export const golfDraftPicks = pgTable("golf_draft_picks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leagueId: varchar("league_id").notNull().references(() => golfLeagues.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  golferId: varchar("golfer_id").notNull().references(() => golfGolfers.id, { onDelete: "cascade" }),
+  pickNumber: integer("pick_number").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  golfLeaguePickNumberUnique: unique("golf_draft_pick_number_unique").on(table.leagueId, table.pickNumber),
+  golfLeagueGolferUnique: unique("golf_draft_league_golfer_unique").on(table.leagueId, table.golferId),
+}));
+
+// Golf Insert Schemas
+export const insertGolfGolferSchema = createInsertSchema(golfGolfers).omit({ id: true });
+export const updateGolfGolferSchema = insertGolfGolferSchema.partial();
+
+export const insertGolfTournamentSchema = createInsertSchema(golfTournaments).omit({
+  id: true,
+  createdAt: true,
+  status: true,
+}).extend({
+  startDate: z.string().or(z.date()).transform((val) => new Date(val)),
+});
+
+export const insertGolfLeagueSchema = createInsertSchema(golfLeagues).omit({
+  id: true,
+  commissionerId: true,
+  joinCode: true,
+  draftStatus: true,
+  draftOrder: true,
+  createdAt: true,
+}).extend({
+  maxSize: z.coerce.number().int().min(2).max(20),
+  draftStartTime: z.string().or(z.date()).transform((val) => new Date(val)),
+  draftOrderType: z.enum(["manual", "random"]).default("random"),
+});
+
+export const insertGolfScoreSchema = z.object({
+  golferId: z.string(),
+  round: z.number().int().min(1).max(4),
+  score: z.number().int(),
+});
+
+// Golf Types
+export type GolfGolfer = typeof golfGolfers.$inferSelect;
+export type InsertGolfGolfer = z.infer<typeof insertGolfGolferSchema>;
+export type UpdateGolfGolfer = z.infer<typeof updateGolfGolferSchema>;
+export type GolfTournament = typeof golfTournaments.$inferSelect;
+export type InsertGolfTournament = z.infer<typeof insertGolfTournamentSchema>;
+export type GolfTournamentGolfer = typeof golfTournamentGolfers.$inferSelect;
+export type GolfGolferScore = typeof golfGolferScores.$inferSelect;
+export type GolfLeague = typeof golfLeagues.$inferSelect;
+export type InsertGolfLeague = z.infer<typeof insertGolfLeagueSchema>;
+export type GolfLeagueMember = typeof golfLeagueMembers.$inferSelect;
+export type GolfDraftPick = typeof golfDraftPicks.$inferSelect;
+
+// Golf Composite Types
+export type GolfDraftPickWithDetails = GolfDraftPick & {
+  golfer: GolfGolfer;
+  user: { id: string; username: string };
+};
+
+export type GolfDraftState = {
+  league: GolfLeague;
+  picks: GolfDraftPickWithDetails[];
+  currentPickUserId: string | null;
+  currentPickNumber: number;
+  availableGolfers: GolfGolfer[];
+  isComplete: boolean;
+  draftOrder: { userId: string; username: string }[];
+};
+
+export type GolfRosterEntry = {
+  golfer: GolfGolfer;
+  scores: { round: number; score: number }[];
+  totalScore: number;
+};
+
+export type GolfLeagueStandingEntry = {
+  userId: string;
+  username: string;
+  roster: GolfRosterEntry[];
+  totalScore: number | null;
+};
+
+export type GolfLeagueDetail = GolfLeague & {
+  tournament: GolfTournament;
+  members: (GolfLeagueMember & { user: { id: string; username: string } })[];
+};
+
 export const platforms: Platform[] = [
   {
     id: "crowdline",
@@ -743,5 +892,13 @@ export const platforms: Platform[] = [
     icon: "Cloud",
     color: "from-cyan-500 to-cyan-600",
     url: "/footballweather",
+  },
+  {
+    id: "golf",
+    name: "Golf Fantasy",
+    description: "Snake draft fantasy golf leagues",
+    icon: "Flag",
+    color: "from-emerald-500 to-emerald-600",
+    url: "/golf",
   },
 ];
