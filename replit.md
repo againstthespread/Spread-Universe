@@ -209,7 +209,7 @@ The application follows documented design guidelines in `design_guidelines.md`:
 
 ### Golf Fantasy Platform (Apr 2026)
 - Added Golf Fantasy as the 7th platform: snake-draft fantasy golf leagues
-- 150 world-ranked golfers seeded on server startup
+- 149 world-ranked golfers seeded on server startup from official rankings CSV (ranks 1-149)
 - Features: create/join leagues, snake draft (4-golfer roster per team), lower score wins
 - Commissioner workflow: create league → invite by username or share join code → set draft order → start draft
 - Admin panel: create tournaments, manage golfer field, enter round scores

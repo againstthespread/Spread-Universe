@@ -230,6 +230,7 @@ export interface IStorage {
   golf_getLeague(id: string): Promise<GolfLeague | undefined>;
   golf_getLeagueDetail(id: string): Promise<GolfLeagueDetail | undefined>;
   golf_getUserLeagues(userId: string): Promise<(GolfLeague & { tournament: GolfTournament })[]>;
+  golf_getAllLeagues(): Promise<(GolfLeague & { tournament: GolfTournament })[]>;
   golf_getLeagueByJoinCode(code: string): Promise<GolfLeague | undefined>;
   golf_updateLeague(id: string, data: Partial<Pick<GolfLeague, 'draftStatus' | 'draftOrder'>>): Promise<GolfLeague | undefined>;
   golf_isLeagueMember(leagueId: string, userId: string): Promise<boolean>;
@@ -1415,7 +1416,6 @@ export class DatabaseStorage implements IStorage {
       { worldRank: 147, firstName: "Peter", lastName: "Uihlein", country: "United States" },
       { worldRank: 148, firstName: "Adam", lastName: "Schenk", country: "United States" },
       { worldRank: 149, firstName: "JC", lastName: "Ritchie", country: "South Africa" },
-      { worldRank: 150, firstName: "Rasmus", lastName: "Hojgaard", country: "Denmark" },
     ];
 
     await db.insert(golfGolfers).values(GOLFERS);
@@ -1594,6 +1594,17 @@ export class DatabaseStorage implements IStorage {
     for (const m of memberships) {
       const league = await this.golf_getLeague(m.leagueId);
       if (!league) continue;
+      const tournament = await this.golf_getTournament(league.tournamentId);
+      if (!tournament) continue;
+      result.push({ ...league, tournament });
+    }
+    return result;
+  }
+
+  async golf_getAllLeagues(): Promise<(GolfLeague & { tournament: GolfTournament })[]> {
+    const leagues = await db.select().from(golfLeagues);
+    const result: (GolfLeague & { tournament: GolfTournament })[] = [];
+    for (const league of leagues) {
       const tournament = await this.golf_getTournament(league.tournamentId);
       if (!tournament) continue;
       result.push({ ...league, tournament });

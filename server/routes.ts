@@ -1964,7 +1964,7 @@ export async function registerRoutes(
   // Admin: all leagues
   app.get("/api/golf/admin/leagues", requireAdmin, async (req, res) => {
     try {
-      const allLeagues = await storage.golf_getTournaments();
+      const allLeagues = await storage.golf_getAllLeagues();
       res.json(allLeagues);
     } catch (error) {
       res.status(500).json({ message: "Failed to get leagues" });
