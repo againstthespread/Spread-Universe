@@ -1,4 +1,4 @@
-import { Users, Trophy, Play, Medal, Star, Cloud, Lock, type LucideIcon } from "lucide-react";
+import { Users, Trophy, Play, Medal, Star, Cloud, Flag, Lock, type LucideIcon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import type { Platform } from "@shared/schema";
 import crowdlineLogo from "@assets/generated_images/black_plus-minus_on_white.png";
@@ -15,6 +15,7 @@ const iconMap: Record<string, LucideIcon> = {
   Medal,
   Star,
   Cloud,
+  Flag,
 };
 
 interface PlatformCardProps {

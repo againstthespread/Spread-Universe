@@ -1,15 +1,19 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Link, useLocation } from "wouter";
+import { Link } from "wouter";
 import { useAuth } from "@/lib/auth-context";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Flag, Users, Copy, ChevronRight, UserPlus, Trophy, Calendar, ArrowLeft } from "lucide-react";
-import type { GolfLeagueDetail } from "@shared/schema";
+import {
+  Flag, ArrowLeft, Users, Copy, Trophy, Calendar, UserPlus,
+  User, CheckCircle, ChevronUp, ChevronDown, Search, Loader2,
+} from "lucide-react";
+import type { GolfLeagueDetail, GolfDraftState, GolfLeagueStandingEntry } from "@shared/schema";
 
 function DraftStatusBadge({ status }: { status: string }) {
   const variants: Record<string, "default" | "secondary" | "outline"> = {
@@ -17,20 +21,67 @@ function DraftStatusBadge({ status }: { status: string }) {
     active: "default",
     completed: "secondary",
   };
+  const labels: Record<string, string> = {
+    pending: "Pending Draft",
+    active: "Draft Live",
+    completed: "Draft Complete",
+  };
   return (
-    <Badge variant={variants[status] ?? "outline"} className="capitalize">
-      Draft: {status}
+    <Badge variant={variants[status] ?? "outline"}>
+      {labels[status] ?? status}
     </Badge>
   );
+}
+
+function formatCountdown(ms: number) {
+  if (ms <= 0) return "Starting soon...";
+  const days = Math.floor(ms / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((ms % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
+  const seconds = Math.floor((ms % (1000 * 60)) / 1000);
+  if (days > 0) return `${days}d ${hours}h ${minutes}m ${seconds}s`;
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  return `${minutes}m ${seconds}s`;
+}
+
+function CountdownTimer({ targetTime }: { targetTime: string }) {
+  const [timeLeft, setTimeLeft] = useState(() => new Date(targetTime).getTime() - Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTimeLeft(new Date(targetTime).getTime() - Date.now());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [targetTime]);
+
+  return (
+    <div className="text-center py-4 space-y-2">
+      <p className="text-sm text-muted-foreground uppercase tracking-wide">Draft starts in</p>
+      <p className="text-4xl font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400" data-testid="text-countdown">
+        {formatCountdown(timeLeft)}
+      </p>
+      <p className="text-xs text-muted-foreground">
+        {new Date(targetTime).toLocaleString()}
+      </p>
+    </div>
+  );
+}
+
+function RankIcon({ rank }: { rank: number }) {
+  if (rank === 1) return <Trophy className="w-4 h-4 text-yellow-500" />;
+  if (rank === 2) return <Trophy className="w-4 h-4 text-slate-400" />;
+  if (rank === 3) return <Trophy className="w-4 h-4 text-amber-700" />;
+  return <span className="w-5 text-center text-sm text-muted-foreground inline-block">{rank}</span>;
 }
 
 export default function GolfLeagueDetail({ params }: { params: { id: string } }) {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [, navigate] = useLocation();
   const [inviteUsername, setInviteUsername] = useState("");
+  const [golferSearch, setGolferSearch] = useState("");
+  const [localDraftOrder, setLocalDraftOrder] = useState<string[]>([]);
 
-  const { data: league, isLoading } = useQuery<GolfLeagueDetail>({
+  const { data: league, isLoading: leagueLoading } = useQuery<GolfLeagueDetail>({
     queryKey: ["/api/golf/leagues", params.id],
     queryFn: async () => {
       const res = await fetch(`/api/golf/leagues/${params.id}`, { credentials: "include" });
@@ -39,6 +90,38 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
     },
     enabled: !!user,
   });
+
+  const { data: draftState } = useQuery<GolfDraftState>({
+    queryKey: ["/api/golf/leagues", params.id, "draft"],
+    queryFn: async () => {
+      const res = await fetch(`/api/golf/leagues/${params.id}/draft`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load draft");
+      return res.json();
+    },
+    enabled: !!user && !!league && league.draftStatus !== "pending",
+    refetchInterval: (query) =>
+      (query.state.data as GolfDraftState | undefined)?.league.draftStatus === "active" ? 4000 : false,
+  });
+
+  const { data: standings = [] } = useQuery<GolfLeagueStandingEntry[]>({
+    queryKey: ["/api/golf/leagues", params.id, "standings"],
+    queryFn: async () => {
+      const res = await fetch(`/api/golf/leagues/${params.id}/standings`, { credentials: "include" });
+      if (!res.ok) throw new Error("Not found");
+      return res.json();
+    },
+    enabled: !!user && !!league,
+    refetchInterval: league?.draftStatus === "completed" ? 60000 : false,
+  });
+
+  useEffect(() => {
+    if (!league) return;
+    if (league.draftOrder && league.draftOrder.length > 0) {
+      setLocalDraftOrder(league.draftOrder);
+    } else {
+      setLocalDraftOrder(league.members.map(m => m.userId));
+    }
+  }, [league]);
 
   const inviteMutation = useMutation({
     mutationFn: (username: string) =>
@@ -50,7 +133,7 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
       setInviteUsername("");
     },
     onError: (err: Error) => {
-      toast({ title: "Error", description: err.message ?? "Failed to invite user", variant: "destructive" });
+      toast({ title: "Error", description: err.message ?? "Failed to invite", variant: "destructive" });
     },
   });
 
@@ -66,6 +149,30 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
     },
   });
 
+  const saveDraftOrderMutation = useMutation({
+    mutationFn: (draftOrder: string[]) =>
+      apiRequest("PATCH", `/api/golf/leagues/${params.id}/draft-order`, { draftOrder }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/golf/leagues", params.id] });
+      toast({ title: "Draft order saved" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message ?? "Failed to save order", variant: "destructive" });
+    },
+  });
+
+  const pickMutation = useMutation({
+    mutationFn: (golferId: string) =>
+      apiRequest("POST", `/api/golf/leagues/${params.id}/draft/pick`, { golferId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/golf/leagues", params.id, "draft"] });
+      toast({ title: "Pick submitted!" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message ?? "Failed to submit pick", variant: "destructive" });
+    },
+  });
+
   const copyCode = () => {
     if (league) {
       navigator.clipboard.writeText(league.joinCode);
@@ -73,19 +180,41 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
     }
   };
 
-  if (isLoading) {
+  const moveMember = (idx: number, direction: "up" | "down") => {
+    const newOrder = [...localDraftOrder];
+    const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= newOrder.length) return;
+    [newOrder[idx], newOrder[swapIdx]] = [newOrder[swapIdx], newOrder[idx]];
+    setLocalDraftOrder(newOrder);
+  };
+
+  const overallPickToRoundPick = (pickNum: number, totalUsers: number) => {
+    const round = Math.floor(pickNum / totalUsers) + 1;
+    const pick = (pickNum % totalUsers) + 1;
+    return `R${round}.${pick}`;
+  };
+
+  const filteredGolfers = useMemo(() => {
+    if (!draftState?.availableGolfers) return [];
+    if (!golferSearch.trim()) return draftState.availableGolfers;
+    const q = golferSearch.toLowerCase();
+    return draftState.availableGolfers.filter(g =>
+      `${g.firstName} ${g.lastName}`.toLowerCase().includes(q) ||
+      (g.country?.toLowerCase().includes(q) ?? false)
+    );
+  }, [draftState?.availableGolfers, golferSearch]);
+
+  if (leagueLoading) {
     return (
-      <div className="container max-w-4xl mx-auto p-6">
-        <Card>
-          <CardContent className="p-8 text-center text-muted-foreground">Loading...</CardContent>
-        </Card>
+      <div className="container max-w-5xl mx-auto p-6 flex items-center justify-center min-h-64">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
   if (!league) {
     return (
-      <div className="container max-w-4xl mx-auto p-6">
+      <div className="container max-w-5xl mx-auto p-6">
         <Card>
           <CardContent className="p-8 text-center text-muted-foreground">League not found.</CardContent>
         </Card>
@@ -95,15 +224,21 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
 
   const isCommissioner = user?.id === league.commissionerId;
   const canStartDraft = isCommissioner && league.draftStatus === "pending" && league.members.length >= 2;
-  const draftOrder = league.draftOrder ?? [];
+  const memberMap = Object.fromEntries(league.members.map(m => [m.userId, m.user.username]));
+  const savedOrder = league.draftOrder ?? league.members.map(m => m.userId);
+  const orderIsDirty = JSON.stringify(localDraftOrder) !== JSON.stringify(savedOrder);
+  const n = draftState?.draftOrder.length ?? league.members.length;
+  const isMyTurn = draftState?.currentPickUserId === user?.id;
+  const myPicks = draftState?.picks.filter(p => p.userId === user?.id) ?? [];
+  const defaultTab = league.draftStatus === "active" ? "draft" : "members";
 
   return (
-    <div className="container max-w-4xl mx-auto p-6 space-y-6">
+    <div className="container max-w-5xl mx-auto p-6 space-y-6">
       <div className="flex items-center gap-2">
         <Button variant="ghost" size="sm" asChild>
           <Link href="/golf">
             <ArrowLeft className="w-4 h-4 mr-1" />
-            Back
+            Golf Fantasy
           </Link>
         </Button>
       </div>
@@ -114,7 +249,7 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
             <Flag className="w-6 h-6 text-emerald-500" />
             {league.name}
           </h1>
-          <p className="text-muted-foreground mt-1 flex items-center gap-2">
+          <p className="text-muted-foreground mt-1 flex items-center gap-2 text-sm">
             <Trophy className="w-4 h-4" />
             {league.tournament.name}
           </p>
@@ -125,148 +260,558 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
             )}
           </div>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          {league.draftStatus !== "pending" && (
-            <Button variant="outline" asChild>
-              <Link href={`/golf/leagues/${params.id}/draft`}>
-                {league.draftStatus === "active" ? "Go to Draft" : "View Draft"}
-              </Link>
-            </Button>
-          )}
-          {league.draftStatus === "completed" && (
-            <Button asChild>
-              <Link href={`/golf/leagues/${params.id}/standings`}>
-                <Trophy className="w-4 h-4 mr-2" />
-                Standings
-              </Link>
-            </Button>
-          )}
-          {canStartDraft && (
-            <Button
-              onClick={() => startDraftMutation.mutate()}
-              disabled={startDraftMutation.isPending}
-              data-testid="button-start-draft"
-            >
-              {startDraftMutation.isPending ? "Starting..." : "Start Draft"}
-            </Button>
-          )}
-        </div>
+        {canStartDraft && (
+          <Button
+            onClick={() => startDraftMutation.mutate()}
+            disabled={startDraftMutation.isPending}
+            data-testid="button-start-draft"
+          >
+            {startDraftMutation.isPending ? "Starting..." : "Start Draft"}
+          </Button>
+        )}
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
-        {/* Join Code */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Join Code</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center gap-2">
-              <code
-                className="flex-1 text-2xl font-bold tracking-widest text-center p-3 bg-muted rounded-md"
-                data-testid="text-join-code"
-              >
-                {league.joinCode}
-              </code>
-              <Button variant="outline" size="icon" onClick={copyCode} data-testid="button-copy-code">
-                <Copy className="w-4 h-4" />
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">Share this code with friends to invite them</p>
-          </CardContent>
-        </Card>
+      <Tabs defaultValue={defaultTab} className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="members" data-testid="tab-members">Members</TabsTrigger>
+          <TabsTrigger value="draft" data-testid="tab-draft">Draft Room</TabsTrigger>
+          <TabsTrigger value="roster" data-testid="tab-roster">Roster</TabsTrigger>
+          <TabsTrigger value="standings" data-testid="tab-standings">Standings</TabsTrigger>
+        </TabsList>
 
-        {/* League Info */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Details</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground flex items-center gap-2">
-                <Users className="w-4 h-4" /> Members
-              </span>
-              <span className="font-medium">{league.members.length} / {league.maxSize}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground flex items-center gap-2">
-                <Calendar className="w-4 h-4" /> Draft Time
-              </span>
-              <span className="font-medium">{new Date(league.draftStartTime).toLocaleString()}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Draft Order</span>
-              <span className="font-medium capitalize">{league.draftOrderType}</span>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+        {/* MEMBERS TAB */}
+        <TabsContent value="members" className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Join Code</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <code
+                    className="flex-1 text-2xl font-bold tracking-widest text-center p-3 bg-muted rounded-md"
+                    data-testid="text-join-code"
+                  >
+                    {league.joinCode}
+                  </code>
+                  <Button variant="outline" size="icon" onClick={copyCode} data-testid="button-copy-code">
+                    <Copy className="w-4 h-4" />
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">Share this code with friends to invite them</p>
+              </CardContent>
+            </Card>
 
-      {/* Members */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Users className="w-4 h-4" />
-            Members ({league.members.length})
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {league.members.map((m, i) => (
-            <div key={m.id} className="flex items-center justify-between p-2 rounded-md bg-muted/50" data-testid={`row-member-${m.id}`}>
-              <div className="flex items-center gap-3">
-                <span className="text-muted-foreground text-sm w-6">{i + 1}.</span>
-                <span className="font-medium" data-testid={`text-member-username-${m.id}`}>{m.user.username}</span>
-                {m.userId === league.commissionerId && (
-                  <Badge variant="outline" className="text-xs">Commissioner</Badge>
-                )}
-              </div>
-              {draftOrder.length > 0 && league.draftStatus !== "pending" && (
-                <span className="text-xs text-muted-foreground">
-                  Pick #{draftOrder.indexOf(m.userId) + 1}
-                </span>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Details</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground flex items-center gap-2">
+                    <Users className="w-4 h-4" /> Members
+                  </span>
+                  <span className="font-medium">{league.members.length} / {league.maxSize}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground flex items-center gap-2">
+                    <Calendar className="w-4 h-4" /> Draft Time
+                  </span>
+                  <span className="font-medium text-right">{new Date(league.draftStartTime).toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Draft Order</span>
+                  <span className="font-medium capitalize">{league.draftOrderType}</span>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Users className="w-4 h-4" />
+                Members ({league.members.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {league.members.map((m, i) => (
+                <div
+                  key={m.id}
+                  className="flex items-center justify-between p-2 rounded-md bg-muted/50"
+                  data-testid={`row-member-${m.id}`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-muted-foreground text-sm w-6">{i + 1}.</span>
+                    <span className="font-medium" data-testid={`text-member-username-${m.id}`}>{m.user.username}</span>
+                    {m.userId === league.commissionerId && (
+                      <Badge variant="outline" className="text-xs">Commissioner</Badge>
+                    )}
+                    {m.userId === user?.id && (
+                      <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-600">You</Badge>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              {isCommissioner && league.draftStatus === "pending" && league.members.length < league.maxSize && (
+                <div className="flex gap-2 mt-4 pt-4 border-t">
+                  <Input
+                    value={inviteUsername}
+                    onChange={e => setInviteUsername(e.target.value)}
+                    placeholder="Invite by username"
+                    data-testid="input-invite-username"
+                    className="flex-1"
+                    onKeyDown={e => {
+                      if (e.key === "Enter" && inviteUsername.trim()) {
+                        inviteMutation.mutate(inviteUsername.trim());
+                      }
+                    }}
+                  />
+                  <Button
+                    onClick={() => inviteMutation.mutate(inviteUsername.trim())}
+                    disabled={!inviteUsername.trim() || inviteMutation.isPending}
+                    data-testid="button-invite-user"
+                  >
+                    <UserPlus className="w-4 h-4 mr-2" />
+                    {inviteMutation.isPending ? "Inviting..." : "Invite"}
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* DRAFT ROOM TAB */}
+        <TabsContent value="draft" className="space-y-4">
+          {league.draftStatus === "pending" && (
+            <div className="space-y-4">
+              <Card className="border-emerald-200 dark:border-emerald-800">
+                <CardContent className="p-6">
+                  <CountdownTimer targetTime={league.draftStartTime} />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <CardTitle className="text-base">Draft Order</CardTitle>
+                    {isCommissioner && league.draftOrderType === "manual" && (
+                      <div className="flex gap-2">
+                        {orderIsDirty && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setLocalDraftOrder(savedOrder)}
+                            data-testid="button-reset-draft-order"
+                          >
+                            Reset
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          onClick={() => saveDraftOrderMutation.mutate(localDraftOrder)}
+                          disabled={saveDraftOrderMutation.isPending || !orderIsDirty}
+                          data-testid="button-save-draft-order"
+                        >
+                          {saveDraftOrderMutation.isPending ? "Saving..." : "Save Order"}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                  {isCommissioner && league.draftOrderType === "manual" && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Use arrows to arrange pick order. Round 2 automatically reverses (snake draft).
+                    </p>
+                  )}
+                  {league.draftOrderType === "random" && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Order will be randomized when the draft starts.
+                    </p>
+                  )}
+                </CardHeader>
+                <CardContent className="space-y-1">
+                  {localDraftOrder.map((userId, idx) => (
+                    <div
+                      key={userId}
+                      className="flex items-center gap-2 p-2 rounded bg-muted/40"
+                      data-testid={`row-draft-order-${userId}`}
+                    >
+                      <span className="text-sm text-muted-foreground w-6">{idx + 1}.</span>
+                      <span className="flex-1 text-sm font-medium">{memberMap[userId] ?? "Unknown"}</span>
+                      {userId === user?.id && (
+                        <Badge variant="outline" className="text-xs">You</Badge>
+                      )}
+                      {isCommissioner && league.draftOrderType === "manual" && (
+                        <div className="flex gap-0.5">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0"
+                            onClick={() => moveMember(idx, "up")}
+                            disabled={idx === 0}
+                            data-testid={`button-order-up-${userId}`}
+                          >
+                            <ChevronUp className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0"
+                            onClick={() => moveMember(idx, "down")}
+                            disabled={idx === localDraftOrder.length - 1}
+                            data-testid={`button-order-down-${userId}`}
+                          >
+                            <ChevronDown className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {localDraftOrder.length === 0 && (
+                    <p className="text-sm text-muted-foreground py-2">No members yet.</p>
+                  )}
+                </CardContent>
+              </Card>
+
+              {canStartDraft && (
+                <Button
+                  className="w-full"
+                  onClick={() => startDraftMutation.mutate()}
+                  disabled={startDraftMutation.isPending}
+                  data-testid="button-start-draft-tab"
+                >
+                  {startDraftMutation.isPending ? "Starting..." : "Start Draft Now"}
+                </Button>
+              )}
+              {!canStartDraft && isCommissioner && (
+                <p className="text-center text-sm text-muted-foreground">
+                  At least 2 members needed to start the draft.
+                </p>
               )}
             </div>
-          ))}
+          )}
 
-          {/* Invite by username (commissioner only) */}
-          {isCommissioner && league.draftStatus === "pending" && league.members.length < league.maxSize && (
-            <div className="flex gap-2 mt-4 pt-4 border-t">
-              <Input
-                value={inviteUsername}
-                onChange={e => setInviteUsername(e.target.value)}
-                placeholder="Invite by username"
-                data-testid="input-invite-username"
-                className="flex-1"
-              />
-              <Button
-                onClick={() => inviteMutation.mutate(inviteUsername)}
-                disabled={!inviteUsername.trim() || inviteMutation.isPending}
-                data-testid="button-invite-user"
-              >
-                <UserPlus className="w-4 h-4 mr-2" />
-                {inviteMutation.isPending ? "Inviting..." : "Invite"}
-              </Button>
+          {(league.draftStatus === "active" || league.draftStatus === "completed") && !draftState && (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
             </div>
           )}
-        </CardContent>
-      </Card>
 
-      {/* Quick links if draft active */}
-      {league.draftStatus === "active" && (
-        <Card className="border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/20">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="font-semibold text-emerald-700 dark:text-emerald-400">Draft is Live!</p>
-              <p className="text-sm text-muted-foreground">The snake draft is in progress</p>
+          {(league.draftStatus === "active" || league.draftStatus === "completed") && draftState && (
+            <div className="space-y-4">
+              {league.draftStatus === "active" && !draftState.isComplete && (
+                <Card className={isMyTurn ? "border-emerald-400 bg-emerald-50 dark:bg-emerald-950/20" : ""}>
+                  <CardContent className="p-4 flex items-center justify-between flex-wrap gap-2">
+                    {isMyTurn ? (
+                      <div>
+                        <p className="text-lg font-bold text-emerald-700 dark:text-emerald-400">It's your turn!</p>
+                        <p className="text-sm text-muted-foreground">Select a golfer from the list below</p>
+                      </div>
+                    ) : (
+                      <div>
+                        <p className="text-lg font-semibold">
+                          Waiting for{" "}
+                          <span className="text-emerald-600 dark:text-emerald-400">
+                            {draftState.draftOrder.find(d => d.userId === draftState.currentPickUserId)?.username ?? "..."}
+                          </span>
+                        </p>
+                        <p className="text-sm text-muted-foreground">to make their pick</p>
+                      </div>
+                    )}
+                    <Badge variant="default" className="text-sm px-3 py-1">
+                      Pick {draftState.currentPickNumber + 1} of {n * 4}
+                      {" · "}
+                      {overallPickToRoundPick(draftState.currentPickNumber, n)}
+                    </Badge>
+                  </CardContent>
+                </Card>
+              )}
+
+              {draftState.isComplete && (
+                <Card className="border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20">
+                  <CardContent className="p-6 text-center">
+                    <CheckCircle className="w-10 h-10 text-emerald-500 mx-auto mb-3" />
+                    <p className="text-lg font-bold text-emerald-700 dark:text-emerald-400">Draft Complete!</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Check the Roster and Standings tabs for results.
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+
+              <div className="grid gap-4 lg:grid-cols-3">
+                {league.draftStatus === "active" && !draftState.isComplete && (
+                  <div className="lg:col-span-2 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold text-sm">Available Golfers</h3>
+                      <span className="text-muted-foreground text-xs">({draftState.availableGolfers.length})</span>
+                    </div>
+                    <div className="relative">
+                      <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        className="pl-9"
+                        placeholder="Search by name or country..."
+                        value={golferSearch}
+                        onChange={e => setGolferSearch(e.target.value)}
+                        data-testid="input-golfer-search"
+                      />
+                    </div>
+                    <div className="grid gap-1.5 max-h-[52vh] overflow-y-auto pr-1">
+                      {filteredGolfers.map(golfer => (
+                        <Card
+                          key={golfer.id}
+                          className={`transition-colors ${isMyTurn ? "cursor-pointer hover:border-emerald-400 hover:bg-muted/50" : "opacity-60"}`}
+                          data-testid={`card-golfer-${golfer.id}`}
+                          onClick={() => {
+                            if (isMyTurn && !pickMutation.isPending) {
+                              pickMutation.mutate(golfer.id);
+                            }
+                          }}
+                        >
+                          <CardContent className="p-2.5 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <span className="text-muted-foreground text-xs w-8 font-mono">#{golfer.worldRank}</span>
+                              <div>
+                                <p className="font-medium text-sm">{golfer.firstName} {golfer.lastName}</p>
+                                <p className="text-xs text-muted-foreground">{golfer.country}</p>
+                              </div>
+                            </div>
+                            {isMyTurn && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-xs shrink-0"
+                                disabled={pickMutation.isPending}
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  pickMutation.mutate(golfer.id);
+                                }}
+                                data-testid={`button-pick-${golfer.id}`}
+                              >
+                                Draft
+                              </Button>
+                            )}
+                          </CardContent>
+                        </Card>
+                      ))}
+                      {filteredGolfers.length === 0 && (
+                        <p className="text-muted-foreground text-sm text-center py-4">No golfers found</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className={`space-y-3 ${league.draftStatus === "active" && !draftState.isComplete ? "" : "lg:col-span-3 grid md:grid-cols-3 md:gap-4 md:space-y-0"}`}>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">Draft Order</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-1">
+                      {draftState.draftOrder.map(entry => (
+                        <div
+                          key={entry.userId}
+                          className={`flex items-center gap-2 p-1.5 rounded text-sm ${
+                            entry.userId === draftState.currentPickUserId && !draftState.isComplete
+                              ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 font-semibold"
+                              : ""
+                          }`}
+                          data-testid={`row-draft-order-${entry.userId}`}
+                        >
+                          <User className="w-3 h-3 shrink-0" />
+                          <span className="flex-1 truncate">{entry.username}</span>
+                          {entry.userId === user?.id && (
+                            <Badge variant="outline" className="text-xs py-0">you</Badge>
+                          )}
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+
+                  {myPicks.length > 0 && (
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm flex items-center gap-2">
+                          <CheckCircle className="w-4 h-4 text-emerald-500" />
+                          My Roster
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-1">
+                        {myPicks.map(pick => (
+                          <div key={pick.id} className="flex items-center gap-2 text-sm p-1 rounded" data-testid={`row-my-pick-${pick.id}`}>
+                            <span className="text-muted-foreground text-xs w-6">#{pick.golfer.worldRank}</span>
+                            <span>{pick.golfer.firstName} {pick.golfer.lastName}</span>
+                          </div>
+                        ))}
+                        {myPicks.length < 4 && !draftState.isComplete && (
+                          <p className="text-xs text-muted-foreground pt-1">
+                            {4 - myPicks.length} more pick{4 - myPicks.length !== 1 ? "s" : ""} remaining
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {draftState.picks.length > 0 && (
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm">Pick Log</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-1 max-h-56 overflow-y-auto">
+                        {[...draftState.picks].reverse().map(pick => (
+                          <div key={pick.id} className="text-xs text-muted-foreground flex gap-1 flex-wrap">
+                            <span className="font-medium text-foreground">{pick.user.username}</span>
+                            <span>drafted</span>
+                            <span className="font-medium text-foreground">
+                              {pick.golfer.firstName} {pick.golfer.lastName}
+                            </span>
+                          </div>
+                        ))}
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              </div>
             </div>
-            <Button asChild>
-              <Link href={`/golf/leagues/${params.id}/draft`}>
-                Go to Draft
-                <ChevronRight className="w-4 h-4 ml-1" />
-              </Link>
-            </Button>
-          </CardContent>
-        </Card>
-      )}
+          )}
+        </TabsContent>
+
+        {/* ROSTER TAB */}
+        <TabsContent value="roster" className="space-y-4">
+          {league.draftStatus === "pending" ? (
+            <Card>
+              <CardContent className="p-8 text-center text-muted-foreground">
+                Rosters will appear after the draft completes.
+              </CardContent>
+            </Card>
+          ) : !draftState ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              {draftState.draftOrder.map(({ userId, username }) => {
+                const picks = draftState.picks.filter(p => p.userId === userId);
+                return (
+                  <Card
+                    key={userId}
+                    className={userId === user?.id ? "border-emerald-400 dark:border-emerald-600" : ""}
+                    data-testid={`card-roster-${userId}`}
+                  >
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <User className="w-4 h-4" />
+                        {username}
+                        {userId === user?.id && (
+                          <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-600">You</Badge>
+                        )}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-1.5">
+                      {picks.map(pick => (
+                        <div
+                          key={pick.id}
+                          className="flex items-center gap-2 text-sm p-1.5 bg-muted/40 rounded"
+                          data-testid={`row-pick-${userId}-${pick.golfer.id}`}
+                        >
+                          <span className="text-muted-foreground text-xs w-8 font-mono">#{pick.golfer.worldRank}</span>
+                          <span>{pick.golfer.firstName} {pick.golfer.lastName}</span>
+                          <span className="text-xs text-muted-foreground ml-auto">{pick.golfer.country}</span>
+                        </div>
+                      ))}
+                      {picks.length === 0 && (
+                        <p className="text-xs text-muted-foreground">No picks yet</p>
+                      )}
+                      {picks.length < 4 && league.draftStatus === "active" && (
+                        <p className="text-xs text-muted-foreground">
+                          {4 - picks.length} pick{4 - picks.length !== 1 ? "s" : ""} remaining
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* STANDINGS TAB */}
+        <TabsContent value="standings" className="space-y-4">
+          {standings.length === 0 ? (
+            <Card>
+              <CardContent className="p-8 text-center text-muted-foreground">
+                {league.draftStatus === "pending"
+                  ? "Standings will be available once the draft completes and scores are entered."
+                  : "No scores entered yet. Check back when the tournament begins."}
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-xs text-muted-foreground">
+                Lower total strokes wins. Only rounds with scores entered are counted.
+              </p>
+              {standings.map((entry, index) => (
+                <Card
+                  key={entry.userId}
+                  className={entry.userId === user?.id ? "border-emerald-400 dark:border-emerald-600" : ""}
+                  data-testid={`card-standing-${entry.userId}`}
+                >
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <RankIcon rank={index + 1} />
+                        <span className="font-semibold" data-testid={`text-standing-username-${entry.userId}`}>
+                          {entry.username}
+                        </span>
+                        {entry.userId === user?.id && (
+                          <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-600">You</Badge>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <div className="text-lg font-bold" data-testid={`text-total-score-${entry.userId}`}>
+                          {entry.totalScore ?? "—"}
+                        </div>
+                        <div className="text-xs text-muted-foreground">strokes</div>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-1.5">
+                      {entry.roster.map(rosterEntry => (
+                        <div
+                          key={rosterEntry.golfer.id}
+                          className="flex items-center justify-between text-sm p-1.5 rounded bg-muted/40"
+                          data-testid={`row-roster-${entry.userId}-${rosterEntry.golfer.id}`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-muted-foreground text-xs w-8">#{rosterEntry.golfer.worldRank}</span>
+                            <span className="text-sm">{rosterEntry.golfer.firstName} {rosterEntry.golfer.lastName}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {rosterEntry.scores.map(s => (
+                              <span key={s.round} className="text-xs text-muted-foreground">
+                                R{s.round}:{s.score}
+                              </span>
+                            ))}
+                            {rosterEntry.scores.length > 0 && (
+                              <span className="font-medium text-xs bg-muted px-2 py-0.5 rounded">
+                                {rosterEntry.totalScore}
+                              </span>
+                            )}
+                            {rosterEntry.scores.length === 0 && (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
