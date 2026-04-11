@@ -1572,7 +1572,7 @@ export async function registerRoutes(
   // ─── Golf Fantasy Routes ─────────────────────────────────────────
 
   // Golfers
-  app.get("/api/golf/golfers", async (req, res) => {
+  app.get("/api/golf/golfers", requireAuth, async (req, res) => {
     try {
       const { tournamentId, excludeTournamentId } = req.query as Record<string, string>;
       const golfers = await storage.golf_getGolfers({
@@ -1586,7 +1586,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/golf/golfers/:id", async (req, res) => {
+  app.get("/api/golf/golfers/:id", requireAuth, async (req, res) => {
     try {
       const golfer = await storage.golf_getGolfer(req.params.id);
       if (!golfer) return res.status(404).json({ message: "Golfer not found" });
@@ -1741,7 +1741,7 @@ export async function registerRoutes(
   // Leagues - IMPORTANT: /join must come BEFORE /:id
   app.post("/api/golf/leagues/join", requireAuth, async (req, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.session.userId!;
       const { joinCode } = req.body;
       if (!joinCode) return res.status(400).json({ message: "joinCode required" });
       const league = await storage.golf_getLeagueByJoinCode(joinCode);
@@ -1765,7 +1765,7 @@ export async function registerRoutes(
 
   app.get("/api/golf/leagues", requireAuth, async (req, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.session.userId!;
       const leagues = await storage.golf_getUserLeagues(userId);
       res.json(leagues);
     } catch (error) {
@@ -1775,7 +1775,7 @@ export async function registerRoutes(
 
   app.post("/api/golf/leagues", requireAuth, async (req, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.session.userId!;
       const result = insertGolfLeagueSchema.safeParse(req.body);
       if (!result.success) return res.status(400).json({ message: "Invalid data", errors: result.error.flatten() });
       const league = await storage.golf_createLeague(result.data, userId);
@@ -1788,7 +1788,7 @@ export async function registerRoutes(
 
   app.get("/api/golf/leagues/:id", requireAuth, async (req, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.session.userId!;
       const detail = await storage.golf_getLeagueDetail(req.params.id);
       if (!detail) return res.status(404).json({ message: "League not found" });
 
@@ -1803,7 +1803,7 @@ export async function registerRoutes(
 
   app.post("/api/golf/leagues/:id/invite", requireAuth, async (req, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.session.userId!;
       const league = await storage.golf_getLeague(req.params.id);
       if (!league) return res.status(404).json({ message: "League not found" });
       if (league.commissionerId !== userId) return res.status(403).json({ message: "Only commissioner can invite" });
@@ -1832,13 +1832,27 @@ export async function registerRoutes(
 
   app.patch("/api/golf/leagues/:id/draft-order", requireAuth, async (req, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.session.userId!;
       const league = await storage.golf_getLeague(req.params.id);
       if (!league) return res.status(404).json({ message: "League not found" });
       if (league.commissionerId !== userId) return res.status(403).json({ message: "Only commissioner can set draft order" });
 
       const { draftOrder } = req.body;
       if (!Array.isArray(draftOrder)) return res.status(400).json({ message: "draftOrder must be an array" });
+
+      const members = await storage.golf_getLeagueMembers(req.params.id);
+      const memberIds = new Set(members.map(m => m.userId));
+      if (draftOrder.length !== memberIds.size) {
+        return res.status(400).json({ message: "Draft order must include exactly all league members" });
+      }
+      const hasDuplicates = new Set(draftOrder).size !== draftOrder.length;
+      if (hasDuplicates) {
+        return res.status(400).json({ message: "Draft order contains duplicate entries" });
+      }
+      const hasInvalidMembers = draftOrder.some((id: string) => !memberIds.has(id));
+      if (hasInvalidMembers) {
+        return res.status(400).json({ message: "Draft order contains non-member user IDs" });
+      }
 
       await storage.golf_updateLeague(req.params.id, { draftOrder });
       res.json({ ok: true });
@@ -1849,7 +1863,7 @@ export async function registerRoutes(
 
   app.post("/api/golf/leagues/:id/start-draft", requireAuth, async (req, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.session.userId!;
       const league = await storage.golf_getLeague(req.params.id);
       if (!league) return res.status(404).json({ message: "League not found" });
       if (league.commissionerId !== userId) return res.status(403).json({ message: "Only commissioner can start draft" });
@@ -1879,7 +1893,7 @@ export async function registerRoutes(
 
   app.post("/api/golf/leagues/:id/draft/start", requireAuth, async (req, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.session.userId!;
       const league = await storage.golf_getLeague(req.params.id);
       if (!league) return res.status(404).json({ message: "League not found" });
       if (league.commissionerId !== userId) return res.status(403).json({ message: "Only commissioner can start draft" });
@@ -1910,7 +1924,7 @@ export async function registerRoutes(
   // Draft
   app.get("/api/golf/leagues/:id/draft", requireAuth, async (req, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.session.userId!;
       const isMember = await storage.golf_isLeagueMember(req.params.id, userId);
       if (!isMember) return res.status(403).json({ message: "Not a member of this league" });
 
@@ -1924,7 +1938,7 @@ export async function registerRoutes(
 
   app.post("/api/golf/leagues/:id/draft/pick", requireAuth, async (req, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.session.userId!;
       const { golferId } = req.body;
       if (!golferId) return res.status(400).json({ message: "golferId required" });
 
@@ -1950,7 +1964,7 @@ export async function registerRoutes(
   // Standings
   app.get("/api/golf/leagues/:id/standings", requireAuth, async (req, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.session.userId!;
       const isMember = await storage.golf_isLeagueMember(req.params.id, userId);
       if (!isMember) return res.status(403).json({ message: "Not a member of this league" });
 
