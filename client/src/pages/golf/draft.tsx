@@ -12,7 +12,6 @@ import type { GolfDraftState, GolfGolfer } from "@shared/schema";
 export default function GolfDraftRoom({ params }: { params: { id: string } }) {
   const { user } = useAuth();
   const { toast } = useToast();
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { data: state, isLoading } = useQuery<GolfDraftState>({
     queryKey: ["/api/golf/leagues", params.id, "draft"],

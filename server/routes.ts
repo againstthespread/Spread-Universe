@@ -1829,6 +1829,10 @@ export async function registerRoutes(
       if (league.commissionerId !== userId) return res.status(403).json({ message: "Only commissioner can start draft" });
       if (league.draftStatus !== "pending") return res.status(400).json({ message: "Draft already started" });
 
+      if (league.draftStartTime && new Date() < new Date(league.draftStartTime)) {
+        return res.status(400).json({ message: "Draft start time has not passed yet" });
+      }
+
       const members = await storage.golf_getLeagueMembers(req.params.id);
       if (members.length < 2) return res.status(400).json({ message: "Need at least 2 members to start draft" });
 
@@ -1867,6 +1871,16 @@ export async function registerRoutes(
       const userId = (req.session as any).userId;
       const { golferId } = req.body;
       if (!golferId) return res.status(400).json({ message: "golferId required" });
+
+      const isMember = await storage.golf_isLeagueMember(req.params.id, userId);
+      if (!isMember) return res.status(403).json({ message: "Not a member of this league" });
+
+      const league = await storage.golf_getLeague(req.params.id);
+      if (!league) return res.status(404).json({ message: "League not found" });
+
+      const tournamentGolfers = await storage.golf_getTournamentGolfers(league.tournamentId);
+      const inField = tournamentGolfers.some(g => g.id === golferId);
+      if (!inField) return res.status(400).json({ message: "Golfer is not in the tournament field" });
 
       const pick = await storage.golf_submitDraftPick(req.params.id, userId, golferId);
       res.status(201).json(pick);
