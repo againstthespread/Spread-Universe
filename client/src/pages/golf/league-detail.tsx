@@ -41,7 +41,7 @@ function formatCountdown(ms: number) {
   return `${minutes}m ${seconds}s`;
 }
 
-function CountdownTimer({ targetTime }: { targetTime: string }) {
+function CountdownTimer({ targetTime }: { targetTime: string | Date }) {
   const [timeLeft, setTimeLeft] = useState(() => new Date(targetTime).getTime() - Date.now());
 
   useEffect(() => {
@@ -250,7 +250,6 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
   const orderIsDirty = JSON.stringify(localDraftOrder) !== JSON.stringify(savedOrder);
   const n = draftState?.draftOrder.length ?? league.members.length;
   const isMyTurn = draftState?.currentPickUserId === user?.id;
-  const myPicks = draftState?.picks.filter(p => p.userId === user?.id) ?? [];
   const defaultTab = league.draftStatus === "active" ? "draft" : "members";
 
   const ROUNDS = [1, 2, 3, 4];
@@ -266,9 +265,18 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
     return map;
   }, [draftState]);
 
-  const tieRanks = useMemo(() => {
-    return computeTieAwareRanks(standings.map(e => e.totalScore));
+  const sortedStandings = useMemo(() => {
+    return [...standings].sort((a, b) => {
+      if (a.totalScore === null && b.totalScore === null) return 0;
+      if (a.totalScore === null) return 1;
+      if (b.totalScore === null) return -1;
+      return a.totalScore - b.totalScore;
+    });
   }, [standings]);
+
+  const tieRanks = useMemo(() => {
+    return computeTieAwareRanks(sortedStandings.map(e => e.totalScore));
+  }, [sortedStandings]);
 
   return (
     <div className="container max-w-5xl mx-auto p-6 space-y-6">
@@ -858,7 +866,7 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
 
         {/* STANDINGS TAB */}
         <TabsContent value="standings" className="space-y-4">
-          {standings.length === 0 ? (
+          {sortedStandings.length === 0 ? (
             <Card>
               <CardContent className="p-8 text-center text-muted-foreground">
                 {league.draftStatus === "pending"
@@ -871,7 +879,7 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
               <p className="text-xs text-muted-foreground">
                 Lower total strokes wins. Only rounds with scores entered are counted.
               </p>
-              {standings.map((entry, index) => (
+              {sortedStandings.map((entry, index) => (
                 <Card
                   key={entry.userId}
                   className={entry.userId === user?.id ? "border-emerald-400 dark:border-emerald-600" : ""}
