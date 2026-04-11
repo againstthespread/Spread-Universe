@@ -1954,9 +1954,10 @@ export async function registerRoutes(
 
       const pick = await storage.golf_submitDraftPick(req.params.id, userId, golferId);
       res.status(201).json(pick);
-    } catch (error: any) {
-      const msg = error?.message ?? "Failed to submit pick";
-      const status = ["Not your turn", "Draft is not active", "Golfer already drafted"].includes(msg) ? 400 : 500;
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Failed to submit pick";
+      const knownClientErrors = ["Not your turn", "Draft is not active", "Golfer already drafted"];
+      const status = knownClientErrors.includes(msg) ? 400 : 500;
       res.status(status).json({ message: msg });
     }
   });
