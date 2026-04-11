@@ -117,6 +117,8 @@ The `shared/` directory contains:
 - `GET /api/golf/tournaments` - List tournaments with their golfer fields
 - `POST /api/golf/tournaments` - Admin: create tournament
 - `PATCH /api/golf/tournaments/:id/status` - Admin: set status (upcoming/active/completed)
+- `PATCH /api/golf/tournaments/:id` - Admin: update tournament (status field accepted)
+- `GET /api/golf/tournaments/:id/golfers` - Get golfers in tournament field
 - `POST/DELETE /api/golf/tournaments/:id/golfers` - Admin: manage tournament field
 - `POST /api/golf/tournaments/:id/scores` - Admin: upsert round score for golfer
 - `POST /api/golf/leagues/join` - Join league by code (must be before /:id route)
@@ -126,6 +128,7 @@ The `shared/` directory contains:
 - `POST /api/golf/leagues/:id/invite` - Commissioner: invite by username
 - `PATCH /api/golf/leagues/:id/draft-order` - Commissioner: set manual draft order
 - `POST /api/golf/leagues/:id/start-draft` - Commissioner: activate draft
+- `POST /api/golf/leagues/:id/draft/start` - Commissioner: activate draft (alias)
 - `GET /api/golf/leagues/:id/draft` - Draft state (4s poll when active)
 - `POST /api/golf/leagues/:id/draft/pick` - Submit draft pick
 - `GET /api/golf/leagues/:id/standings` - League standings
@@ -206,7 +209,7 @@ The application follows documented design guidelines in `design_guidelines.md`:
 
 ### Golf Fantasy Platform (Apr 2026)
 - Added Golf Fantasy as the 7th platform: snake-draft fantasy golf leagues
-- 149 world-ranked golfers seeded from official rankings CSV on server startup
+- 150 world-ranked golfers seeded on server startup
 - Features: create/join leagues, snake draft (4-golfer roster per team), lower score wins
 - Commissioner workflow: create league → invite by username or share join code → set draft order → start draft
 - Admin panel: create tournaments, manage golfer field, enter round scores

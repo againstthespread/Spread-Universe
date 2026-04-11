@@ -1415,6 +1415,7 @@ export class DatabaseStorage implements IStorage {
       { worldRank: 147, firstName: "Peter", lastName: "Uihlein", country: "United States" },
       { worldRank: 148, firstName: "Adam", lastName: "Schenk", country: "United States" },
       { worldRank: 149, firstName: "JC", lastName: "Ritchie", country: "South Africa" },
+      { worldRank: 150, firstName: "Rasmus", lastName: "Hojgaard", country: "Denmark" },
     ];
 
     await db.insert(golfGolfers).values(GOLFERS);

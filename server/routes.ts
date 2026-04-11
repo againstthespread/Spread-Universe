@@ -1671,6 +1671,32 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/golf/tournaments/:id", requireAdmin, async (req, res) => {
+    try {
+      const { status } = req.body;
+      if (status !== undefined) {
+        if (!["upcoming", "active", "completed"].includes(status)) {
+          return res.status(400).json({ message: "Invalid status" });
+        }
+        const tournament = await storage.golf_updateTournamentStatus(req.params.id, status);
+        if (!tournament) return res.status(404).json({ message: "Tournament not found" });
+        return res.json(tournament);
+      }
+      res.status(400).json({ message: "No updatable fields provided" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update tournament" });
+    }
+  });
+
+  app.get("/api/golf/tournaments/:id/golfers", requireAuth, async (req, res) => {
+    try {
+      const golfers = await storage.golf_getTournamentGolfers(req.params.id);
+      res.json(golfers);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get tournament golfers" });
+    }
+  });
+
   app.post("/api/golf/tournaments/:id/golfers", requireAdmin, async (req, res) => {
     try {
       const { golferId } = req.body;
@@ -1822,6 +1848,36 @@ export async function registerRoutes(
   });
 
   app.post("/api/golf/leagues/:id/start-draft", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const league = await storage.golf_getLeague(req.params.id);
+      if (!league) return res.status(404).json({ message: "League not found" });
+      if (league.commissionerId !== userId) return res.status(403).json({ message: "Only commissioner can start draft" });
+      if (league.draftStatus !== "pending") return res.status(400).json({ message: "Draft already started" });
+
+      if (league.draftStartTime && new Date() < new Date(league.draftStartTime)) {
+        return res.status(400).json({ message: "Draft start time has not passed yet" });
+      }
+
+      const members = await storage.golf_getLeagueMembers(req.params.id);
+      if (members.length < 2) return res.status(400).json({ message: "Need at least 2 members to start draft" });
+
+      const draftOrder = league.draftOrder ?? [];
+      if (draftOrder.length !== members.length) {
+        const memberIds = members.map(m => m.userId);
+        const shuffled = memberIds.sort(() => Math.random() - 0.5);
+        await storage.golf_updateLeague(req.params.id, { draftOrder: shuffled, draftStatus: "active" });
+      } else {
+        await storage.golf_updateLeague(req.params.id, { draftStatus: "active" });
+      }
+
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to start draft" });
+    }
+  });
+
+  app.post("/api/golf/leagues/:id/draft/start", requireAuth, async (req, res) => {
     try {
       const userId = (req.session as any).userId;
       const league = await storage.golf_getLeague(req.params.id);
