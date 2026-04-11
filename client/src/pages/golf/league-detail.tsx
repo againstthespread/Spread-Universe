@@ -627,16 +627,19 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
                               return (
                                 <TableCell
                                   key={r}
-                                  className={`text-sm ${isCurrentPick ? "bg-emerald-100 dark:bg-emerald-900/40 font-semibold" : ""}`}
+                                  className={`text-sm ${isCurrentPick ? "bg-emerald-100 dark:bg-emerald-900/40" : ""}`}
                                   data-testid={`cell-board-${userId}-r${r}`}
                                 >
+                                  <div className="text-xs text-muted-foreground mb-0.5">
+                                    Pick #{absolutePickNum + 1}
+                                  </div>
                                   {pick ? (
                                     <div>
                                       <span className="text-xs text-muted-foreground">#{pick.golfer.worldRank}</span>
-                                      <span className="ml-1">{pick.golfer.firstName} {pick.golfer.lastName}</span>
+                                      <span className="ml-1 font-medium">{pick.golfer.firstName} {pick.golfer.lastName}</span>
                                     </div>
                                   ) : (
-                                    <span className={`text-muted-foreground ${isCurrentPick ? "text-emerald-600 dark:text-emerald-400" : ""}`}>
+                                    <span className={`text-muted-foreground ${isCurrentPick ? "font-semibold text-emerald-600 dark:text-emerald-400" : ""}`}>
                                       {isCurrentPick ? "Picking..." : "—"}
                                     </span>
                                   )}
@@ -803,9 +806,29 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
                             className="flex items-start gap-2 p-1.5 bg-muted/40 rounded"
                             data-testid={`row-pick-${userId}-${pick.golfer.id}`}
                           >
-                            <span className="text-muted-foreground text-xs w-8 font-mono pt-0.5">#{pick.golfer.worldRank}</span>
+                            {pick.golfer.photoUrl ? (
+                              <img
+                                src={pick.golfer.photoUrl}
+                                alt={`${pick.golfer.firstName} ${pick.golfer.lastName}`}
+                                className="w-8 h-8 rounded-full object-cover shrink-0"
+                                data-testid={`img-golfer-${pick.golfer.id}`}
+                              />
+                            ) : (
+                              <div
+                                className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-900 flex items-center justify-center text-xs font-bold text-emerald-700 dark:text-emerald-300 shrink-0"
+                                data-testid={`avatar-golfer-${pick.golfer.id}`}
+                              >
+                                {pick.golfer.firstName[0]}{pick.golfer.lastName[0]}
+                              </div>
+                            )}
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium truncate">{pick.golfer.firstName} {pick.golfer.lastName}</p>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="text-sm font-medium">{pick.golfer.firstName} {pick.golfer.lastName}</p>
+                                <span className="text-xs text-muted-foreground">#{pick.golfer.worldRank}</span>
+                                {pick.golfer.country && (
+                                  <span className="text-xs text-muted-foreground">{pick.golfer.country}</span>
+                                )}
+                              </div>
                               <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                                 {ROUNDS.map(r => {
                                   const scoreEntry = scores.find(s => s.round === r);
