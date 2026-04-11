@@ -219,6 +219,31 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
     );
   }, [draftState?.availableGolfers, golferSearch]);
 
+  const picksByUserAndRound = useMemo(() => {
+    const map: Record<string, Record<number, GolfDraftPickWithDetails>> = {};
+    if (!draftState) return map;
+    const numUsers = draftState.draftOrder.length;
+    for (const pick of draftState.picks) {
+      const round = Math.floor(pick.pickNumber / numUsers) + 1;
+      if (!map[pick.userId]) map[pick.userId] = {};
+      map[pick.userId][round] = pick;
+    }
+    return map;
+  }, [draftState]);
+
+  const sortedStandings = useMemo(() => {
+    return [...standings].sort((a, b) => {
+      if (a.totalScore === null && b.totalScore === null) return 0;
+      if (a.totalScore === null) return 1;
+      if (b.totalScore === null) return -1;
+      return a.totalScore - b.totalScore;
+    });
+  }, [standings]);
+
+  const tieRanks = useMemo(() => {
+    return computeTieAwareRanks(sortedStandings.map(e => e.totalScore));
+  }, [sortedStandings]);
+
   if (leagueLoading) {
     return (
       <div className="container max-w-5xl mx-auto p-6 flex items-center justify-center min-h-64">
@@ -253,30 +278,6 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
   const defaultTab = league.draftStatus === "active" ? "draft" : "members";
 
   const ROUNDS = [1, 2, 3, 4];
-  const picksByUserAndRound = useMemo(() => {
-    const map: Record<string, Record<number, GolfDraftPickWithDetails>> = {};
-    if (!draftState) return map;
-    const numUsers = draftState.draftOrder.length;
-    for (const pick of draftState.picks) {
-      const round = Math.floor(pick.pickNumber / numUsers) + 1;
-      if (!map[pick.userId]) map[pick.userId] = {};
-      map[pick.userId][round] = pick;
-    }
-    return map;
-  }, [draftState]);
-
-  const sortedStandings = useMemo(() => {
-    return [...standings].sort((a, b) => {
-      if (a.totalScore === null && b.totalScore === null) return 0;
-      if (a.totalScore === null) return 1;
-      if (b.totalScore === null) return -1;
-      return a.totalScore - b.totalScore;
-    });
-  }, [standings]);
-
-  const tieRanks = useMemo(() => {
-    return computeTieAwareRanks(sortedStandings.map(e => e.totalScore));
-  }, [sortedStandings]);
 
   return (
     <div className="container max-w-5xl mx-auto p-6 space-y-6">
