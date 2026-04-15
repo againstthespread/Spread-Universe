@@ -20,6 +20,23 @@ import type { GolfLeague, GolfTournament } from "@shared/schema";
 
 type GolfLeagueWithTournament = GolfLeague & { tournament: GolfTournament };
 
+function naiveETToUTC(etStr: string): string {
+  const [year, month, day, hour, minute] = etStr.split(/\D+/).map(Number);
+  for (const offsetHours of [4, 5]) {
+    const candidate = new Date(Date.UTC(year, month - 1, day, hour + offsetHours, minute));
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      hour: 'numeric', minute: '2-digit', hour12: false,
+    }).formatToParts(candidate);
+    const etH = parseInt(parts.find(p => p.type === 'hour')!.value);
+    const etM = parseInt(parts.find(p => p.type === 'minute')!.value);
+    if ((etH % 24) === (hour % 24) && etM === minute) {
+      return candidate.toISOString();
+    }
+  }
+  return new Date(Date.UTC(year, month - 1, day, hour + 5, minute)).toISOString();
+}
+
 const createLeagueSchema = z.object({
   name: z.string().min(1, "Name is required").max(60),
   tournamentId: z.string().min(1, "Tournament required"),
@@ -56,7 +73,10 @@ function CreateLeagueDialog() {
   });
 
   const mutation = useMutation({
-    mutationFn: (data: CreateLeagueForm) => apiRequest("POST", "/api/golf/leagues", data),
+    mutationFn: (data: CreateLeagueForm) => apiRequest("POST", "/api/golf/leagues", {
+      ...data,
+      draftStartTime: naiveETToUTC(data.draftStartTime),
+    }),
     onSuccess: async (res) => {
       const league = await res.json();
       queryClient.invalidateQueries({ queryKey: ["/api/golf/leagues"] });
@@ -130,7 +150,7 @@ function CreateLeagueDialog() {
             )} />
             <FormField control={form.control} name="draftStartTime" render={({ field }) => (
               <FormItem>
-                <FormLabel>Draft Start Time</FormLabel>
+                <FormLabel>Draft Start Time <span className="text-muted-foreground font-normal">(Eastern Time)</span></FormLabel>
                 <FormControl>
                   <Input data-testid="input-draft-time" type="datetime-local" {...field} />
                 </FormControl>
