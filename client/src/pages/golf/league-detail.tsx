@@ -371,7 +371,9 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
                   <span className="text-muted-foreground flex items-center gap-2">
                     <Calendar className="w-4 h-4" /> Draft Time
                   </span>
-                  <span className="font-medium text-right text-xs">{new Date(league.draftStartTime).toLocaleString()}</span>
+                  <span className="font-medium text-right text-xs">
+                    {new Date(league.draftStartTime).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET
+                  </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Draft Order</span>
