@@ -12,7 +12,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { z } from "zod";
-import { Plus, Trophy, Flag, Search, ChevronRight, ChevronDown } from "lucide-react";
+import { Plus, Trophy, Flag, Search, ChevronRight, ChevronDown, Users, Pencil } from "lucide-react";
 import type { GolfTournament, GolfGolfer } from "@shared/schema";
 
 type TournamentWithGolfers = GolfTournament & { golfers: GolfGolfer[] };
@@ -23,6 +23,16 @@ const createTournamentSchema = z.object({
 });
 
 type CreateTournamentForm = z.infer<typeof createTournamentSchema>;
+
+const golferFormSchema = z.object({
+  worldRank: z.coerce.number().int().min(1, "Rank must be at least 1"),
+  firstName: z.string().min(1, "First name required"),
+  lastName: z.string().min(1, "Last name required"),
+  country: z.string().min(1, "Country required"),
+  photoUrl: z.string().url("Must be a valid URL").or(z.literal("")).optional(),
+});
+
+type GolferForm = z.infer<typeof golferFormSchema>;
 
 function CreateTournamentDialog({ onSuccess }: { onSuccess: () => void }) {
   const [open, setOpen] = useState(false);
@@ -85,6 +95,251 @@ function CreateTournamentDialog({ onSuccess }: { onSuccess: () => void }) {
         </Form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function GolferDialog({
+  mode,
+  golfer,
+  trigger,
+}: {
+  mode: "add" | "edit";
+  golfer?: GolfGolfer;
+  trigger: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const { toast } = useToast();
+
+  const form = useForm<GolferForm>({
+    resolver: zodResolver(golferFormSchema),
+    defaultValues: {
+      worldRank: golfer?.worldRank ?? (undefined as unknown as number),
+      firstName: golfer?.firstName ?? "",
+      lastName: golfer?.lastName ?? "",
+      country: golfer?.country ?? "",
+      photoUrl: golfer?.photoUrl ?? "",
+    },
+  });
+
+  const addMutation = useMutation({
+    mutationFn: (data: GolferForm) =>
+      apiRequest("POST", "/api/golf/golfers", {
+        ...data,
+        photoUrl: data.photoUrl || null,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/golf/golfers"] });
+      toast({ title: "Golfer added!" });
+      form.reset();
+      setOpen(false);
+    },
+    onError: () => toast({ title: "Error", description: "Failed to add golfer", variant: "destructive" }),
+  });
+
+  const editMutation = useMutation({
+    mutationFn: (data: GolferForm) =>
+      apiRequest("PUT", `/api/golf/golfers/${golfer!.id}`, {
+        ...data,
+        photoUrl: data.photoUrl || null,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/golf/golfers"] });
+      toast({ title: "Golfer updated!" });
+      setOpen(false);
+    },
+    onError: () => toast({ title: "Error", description: "Failed to update golfer", variant: "destructive" }),
+  });
+
+  const mutation = mode === "add" ? addMutation : editMutation;
+
+  const handleOpenChange = (next: boolean) => {
+    setOpen(next);
+    if (next && mode === "edit" && golfer) {
+      form.reset({
+        worldRank: golfer.worldRank,
+        firstName: golfer.firstName,
+        lastName: golfer.lastName,
+        country: golfer.country,
+        photoUrl: golfer.photoUrl ?? "",
+      });
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{mode === "add" ? "Add Golfer" : "Edit Golfer"}</DialogTitle>
+        </DialogHeader>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(d => mutation.mutate(d))} className="space-y-4">
+            <FormField control={form.control} name="worldRank" render={({ field }) => (
+              <FormItem>
+                <FormLabel>World Rank</FormLabel>
+                <FormControl>
+                  <Input
+                    type="number"
+                    min={1}
+                    placeholder="e.g. 150"
+                    data-testid="input-golfer-rank"
+                    {...field}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+            <div className="grid grid-cols-2 gap-3">
+              <FormField control={form.control} name="firstName" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>First Name</FormLabel>
+                  <FormControl>
+                    <Input placeholder="First" data-testid="input-golfer-firstname" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="lastName" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Last Name</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Last" data-testid="input-golfer-lastname" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+            </div>
+            <FormField control={form.control} name="country" render={({ field }) => (
+              <FormItem>
+                <FormLabel>Country</FormLabel>
+                <FormControl>
+                  <Input placeholder="e.g. United States" data-testid="input-golfer-country" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+            <FormField control={form.control} name="photoUrl" render={({ field }) => (
+              <FormItem>
+                <FormLabel>Photo URL <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
+                <FormControl>
+                  <Input placeholder="https://..." data-testid="input-golfer-photo" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+            <Button type="submit" className="w-full" disabled={mutation.isPending} data-testid="button-golfer-submit">
+              {mutation.isPending ? (mode === "add" ? "Adding..." : "Saving...") : (mode === "add" ? "Add Golfer" : "Save Changes")}
+            </Button>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function GolfersSection() {
+  const [search, setSearch] = useState("");
+
+  const { data: golfers = [], isLoading } = useQuery<GolfGolfer[]>({
+    queryKey: ["/api/golf/golfers"],
+    queryFn: async () => {
+      const res = await fetch("/api/golf/golfers", { credentials: "include" });
+      return res.json();
+    },
+  });
+
+  const filtered = golfers.filter(g => {
+    const q = search.toLowerCase();
+    return (
+      `${g.firstName} ${g.lastName}`.toLowerCase().includes(q) ||
+      g.country.toLowerCase().includes(q) ||
+      String(g.worldRank).includes(q)
+    );
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold flex items-center gap-2">
+            <Users className="w-4 h-4 text-emerald-500" />
+            Golfers
+            {!isLoading && (
+              <span className="text-xs font-normal text-muted-foreground">({golfers.length} total)</span>
+            )}
+          </h3>
+          <p className="text-xs text-muted-foreground">View, add, and edit golfers in the database</p>
+        </div>
+        <GolferDialog
+          mode="add"
+          trigger={
+            <Button size="sm" data-testid="button-add-golfer-new">
+              <Plus className="w-4 h-4 mr-2" />
+              Add Golfer
+            </Button>
+          }
+        />
+      </div>
+
+      <div className="relative">
+        <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          className="pl-8 h-9 text-sm"
+          placeholder="Search by name, country, or rank..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          data-testid="input-golfer-search"
+        />
+      </div>
+
+      {isLoading ? (
+        <div className="text-center py-6 text-muted-foreground text-sm">Loading golfers...</div>
+      ) : (
+        <div className="border rounded-md overflow-hidden">
+          <div className="max-h-96 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <div className="text-center py-6 text-muted-foreground text-sm">
+                {search ? "No golfers match your search." : "No golfers found."}
+              </div>
+            ) : (
+              filtered.map(g => (
+                <div
+                  key={g.id}
+                  className="flex items-center justify-between px-3 py-2 border-b last:border-b-0 hover:bg-muted/30 text-sm"
+                  data-testid={`row-golfer-${g.id}`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="text-xs text-muted-foreground w-8 shrink-0 text-right">#{g.worldRank}</span>
+                    <span className="font-medium truncate">{g.firstName} {g.lastName}</span>
+                    <span className="text-xs text-muted-foreground hidden sm:inline truncate">{g.country}</span>
+                  </div>
+                  <GolferDialog
+                    mode="edit"
+                    golfer={g}
+                    trigger={
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 shrink-0"
+                        data-testid={`button-edit-golfer-${g.id}`}
+                      >
+                        <Pencil className="w-3.5 h-3.5 mr-1" />
+                        Edit
+                      </Button>
+                    }
+                  />
+                </div>
+              ))
+            )}
+          </div>
+          {filtered.length > 0 && search && (
+            <div className="px-3 py-1.5 bg-muted/20 border-t text-xs text-muted-foreground">
+              Showing {filtered.length} of {golfers.length} golfers
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -330,32 +585,37 @@ export default function GolfAdminContent() {
   });
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="font-semibold flex items-center gap-2">
-            <Flag className="w-4 h-4 text-emerald-500" />
-            Tournaments
-          </h3>
-          <p className="text-xs text-muted-foreground">Create tournaments, add golfers, enter scores</p>
-        </div>
-        <CreateTournamentDialog onSuccess={() => refetch()} />
-      </div>
+    <div className="space-y-8">
+      {/* Golfers section */}
+      <GolfersSection />
 
-      {isLoading ? (
-        <div className="text-center py-8 text-muted-foreground">Loading tournaments...</div>
-      ) : tournaments.length === 0 ? (
-        <div className="text-center py-8 text-muted-foreground">
-          <Trophy className="w-12 h-12 mx-auto mb-3 opacity-40" />
-          <p>No tournaments yet. Create one to get started.</p>
+      <div className="border-t pt-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold flex items-center gap-2">
+              <Flag className="w-4 h-4 text-emerald-500" />
+              Tournaments
+            </h3>
+            <p className="text-xs text-muted-foreground">Create tournaments, add golfers, enter scores</p>
+          </div>
+          <CreateTournamentDialog onSuccess={() => refetch()} />
         </div>
-      ) : (
-        <div>
-          {tournaments.map(t => (
-            <TournamentPanel key={t.id} tournament={t} />
-          ))}
-        </div>
-      )}
+
+        {isLoading ? (
+          <div className="text-center py-8 text-muted-foreground">Loading tournaments...</div>
+        ) : tournaments.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            <Trophy className="w-12 h-12 mx-auto mb-3 opacity-40" />
+            <p>No tournaments yet. Create one to get started.</p>
+          </div>
+        ) : (
+          <div>
+            {tournaments.map(t => (
+              <TournamentPanel key={t.id} tournament={t} />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
