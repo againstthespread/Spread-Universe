@@ -113,7 +113,7 @@ function GolferDialog({
   const form = useForm<GolferForm>({
     resolver: zodResolver(golferFormSchema),
     defaultValues: {
-      worldRank: golfer?.worldRank ?? (undefined as unknown as number),
+      worldRank: golfer?.worldRank,
       firstName: golfer?.firstName ?? "",
       lastName: golfer?.lastName ?? "",
       country: golfer?.country ?? "",
@@ -154,13 +154,13 @@ function GolferDialog({
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
-    if (next && mode === "edit" && golfer) {
+    if (next) {
       form.reset({
-        worldRank: golfer.worldRank,
-        firstName: golfer.firstName,
-        lastName: golfer.lastName,
-        country: golfer.country,
-        photoUrl: golfer.photoUrl ?? "",
+        worldRank: golfer?.worldRank,
+        firstName: golfer?.firstName ?? "",
+        lastName: golfer?.lastName ?? "",
+        country: golfer?.country ?? "",
+        photoUrl: golfer?.photoUrl ?? "",
       });
     }
   };
@@ -586,10 +586,7 @@ export default function GolfAdminContent() {
 
   return (
     <div className="space-y-8">
-      {/* Golfers section */}
-      <GolfersSection />
-
-      <div className="border-t pt-6 space-y-4">
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="font-semibold flex items-center gap-2">
@@ -615,6 +612,11 @@ export default function GolfAdminContent() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Golfers section */}
+      <div className="border-t pt-6">
+        <GolfersSection />
       </div>
     </div>
   );
