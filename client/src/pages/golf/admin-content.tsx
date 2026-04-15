@@ -546,12 +546,12 @@ function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) 
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="w-24">
-                  <label className="text-xs text-muted-foreground mb-1 block">Score</label>
+                <div className="w-28">
+                  <label className="text-xs text-muted-foreground mb-1 block">To Par (+/-)</label>
                   <Input
                     type="number"
                     className="h-8 text-xs"
-                    placeholder="e.g. 68"
+                    placeholder="e.g. -4"
                     value={scoreForm.score}
                     onChange={e => setScoreForm(f => ({ ...f, score: e.target.value }))}
                     data-testid="input-score"

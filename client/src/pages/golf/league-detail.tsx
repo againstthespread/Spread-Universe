@@ -76,6 +76,13 @@ function computeTieAwareRanks(scores: (number | null)[]): number[] {
   return ranks;
 }
 
+function formatToPar(score: number | null | undefined): string {
+  if (score === null || score === undefined) return "—";
+  if (score === 0) return "E";
+  if (score > 0) return `+${score}`;
+  return `${score}`;
+}
+
 function RankDisplay({ rank }: { rank: number }) {
   if (rank === 1) return <Trophy className="w-4 h-4 text-yellow-500 shrink-0" />;
   if (rank === 2) return <Trophy className="w-4 h-4 text-slate-400 shrink-0" />;
@@ -784,8 +791,8 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
                         </CardTitle>
                         {standingEntry && standingEntry.totalScore !== null && (
                           <div className="text-right">
-                            <span className="font-bold text-sm">{standingEntry.totalScore}</span>
-                            <span className="text-xs text-muted-foreground ml-1">strokes</span>
+                            <span className="font-bold text-sm">{formatToPar(standingEntry.totalScore)}</span>
+                            <span className="text-xs text-muted-foreground ml-1">to par</span>
                           </div>
                         )}
                       </div>
@@ -843,13 +850,13 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
                                   const scoreEntry = scores.find(s => s.round === r);
                                   return (
                                     <span key={r} className="text-xs text-muted-foreground">
-                                      R{r}: {scoreEntry ? scoreEntry.score : "—"}
+                                      R{r}: {scoreEntry ? formatToPar(scoreEntry.score) : "—"}
                                     </span>
                                   );
                                 })}
                                 {total !== null && (
                                   <span className="text-xs font-semibold bg-muted px-1.5 py-0.5 rounded">
-                                    {total}
+                                    {formatToPar(total)}
                                   </span>
                                 )}
                               </div>
@@ -878,7 +885,7 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
           ) : (
             <div className="space-y-3">
               <p className="text-xs text-muted-foreground">
-                Lower total strokes wins. Only rounds with scores entered are counted.
+                Most under par wins — only rounds with scores entered count.
               </p>
               {sortedStandings.map((entry, index) => (
                 <Card
@@ -899,9 +906,9 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
                       </div>
                       <div className="text-right">
                         <div className="text-lg font-bold" data-testid={`text-total-score-${entry.userId}`}>
-                          {entry.totalScore ?? "—"}
+                          {entry.totalScore !== null ? formatToPar(entry.totalScore) : "—"}
                         </div>
-                        <div className="text-xs text-muted-foreground">strokes</div>
+                        <div className="text-xs text-muted-foreground">to par</div>
                       </div>
                     </div>
                   </CardHeader>
@@ -922,13 +929,13 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
                               const s = rosterEntry.scores.find(sc => sc.round === r);
                               return (
                                 <span key={r} className="text-xs text-muted-foreground">
-                                  R{r}:{s ? s.score : "—"}
+                                  R{r}:{s ? formatToPar(s.score) : "—"}
                                 </span>
                               );
                             })}
                             {rosterEntry.scores.length > 0 && (
                               <span className="font-medium text-xs bg-muted px-2 py-0.5 rounded">
-                                {rosterEntry.totalScore}
+                                {formatToPar(rosterEntry.totalScore)}
                               </span>
                             )}
                             {rosterEntry.scores.length === 0 && (
