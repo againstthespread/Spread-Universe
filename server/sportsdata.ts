@@ -29,6 +29,24 @@ export interface SdioScheduleEntry {
   IsCanceled: boolean;
 }
 
+interface LeaderboardRound {
+  Number: number;
+  Par: number;
+  Score: number | null;
+}
+
+interface LeaderboardPlayer {
+  PlayerID: number;
+  Name: string;
+  Country: string | null;
+  IsWithdrawn: boolean;
+  Rounds: LeaderboardRound[] | null;
+}
+
+interface LeaderboardResponse {
+  Players: LeaderboardPlayer[] | null;
+}
+
 async function sdioFetch<T>(path: string): Promise<T> {
   const key = getApiKey();
   const url = `${BASE_URL}/${path}?key=${key}`;
@@ -40,14 +58,54 @@ async function sdioFetch<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+function splitName(fullName: string): { firstName: string; lastName: string } {
+  const parts = fullName.trim().split(" ");
+  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
+  const firstName = parts[0];
+  const lastName = parts.slice(1).join(" ");
+  return { firstName, lastName };
+}
+
+async function fetchLeaderboard(sdioTournamentId: number): Promise<SdioPlayer[]> {
+  const data = await sdioFetch<LeaderboardResponse>(`Leaderboard/${sdioTournamentId}`);
+  const players = data.Players ?? [];
+
+  return players.map(p => {
+    const { firstName, lastName } = splitName(p.Name ?? "");
+    const rounds: SdioRound[] = (p.Rounds ?? [])
+      .filter(r => r.Score !== null)
+      .map(r => ({
+        RoundNumber: r.Number,
+        Score: r.Score !== null ? r.Score - r.Par : null,
+      }));
+
+    return {
+      PlayerID: p.PlayerID,
+      FirstName: firstName,
+      LastName: lastName,
+      Country: p.Country ?? "",
+      WorldGolfRank: null,
+      IsWithdrawn: p.IsWithdrawn ?? false,
+      Rounds: rounds.length > 0 ? rounds : null,
+    };
+  });
+}
+
 export async function fetchTournamentField(sdioTournamentId: number): Promise<SdioPlayer[]> {
-  return sdioFetch<SdioPlayer[]>(`TournamentField/${sdioTournamentId}`);
+  return fetchLeaderboard(sdioTournamentId);
 }
 
 export async function fetchTournamentScores(sdioTournamentId: number): Promise<SdioPlayer[]> {
-  return sdioFetch<SdioPlayer[]>(`Scores/${sdioTournamentId}`);
+  return fetchLeaderboard(sdioTournamentId);
 }
 
 export async function fetchSchedule(season: number): Promise<SdioScheduleEntry[]> {
-  return sdioFetch<SdioScheduleEntry[]>(`Schedule/${season}`);
+  const data = await sdioFetch<any[]>(`Tournaments`);
+  return (data ?? []).map(t => ({
+    TournamentID: t.TournamentID,
+    Name: t.Name,
+    StartDate: t.StartDate,
+    IsOver: t.IsOver ?? false,
+    IsCanceled: t.Canceled ?? false,
+  }));
 }
