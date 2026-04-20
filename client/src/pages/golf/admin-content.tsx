@@ -415,7 +415,10 @@ function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) 
   });
 
   const syncFieldMutation = useMutation({
-    mutationFn: () => apiRequest("POST", `/api/golf/tournaments/${tournament.id}/sync-field`, {}),
+    mutationFn: () => {
+      toast({ title: "Syncing field…", description: "Fetching players from SportsDataIO" });
+      return apiRequest("POST", `/api/golf/tournaments/${tournament.id}/sync-field`, {});
+    },
     onSuccess: async (res) => {
       const data = await res.json();
       queryClient.invalidateQueries({ queryKey: ["/api/golf/tournaments"] });
@@ -428,7 +431,10 @@ function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) 
   });
 
   const syncScoresMutation = useMutation({
-    mutationFn: () => apiRequest("POST", `/api/golf/tournaments/${tournament.id}/sync-scores`, {}),
+    mutationFn: () => {
+      toast({ title: "Syncing scores…", description: "Fetching live round data from SportsDataIO" });
+      return apiRequest("POST", `/api/golf/tournaments/${tournament.id}/sync-scores`, {});
+    },
     onSuccess: async (res) => {
       const data = await res.json();
       queryClient.invalidateQueries({ queryKey: ["/api/golf/tournaments"] });
