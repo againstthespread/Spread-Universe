@@ -1,3 +1,20 @@
+/**
+ * SportsDataIO Golf API client.
+ *
+ * This tier of the API does not expose the `/TournamentField/{id}` or
+ * `/Scores/{id}` endpoints — both return 404 when called.
+ * Instead, we use `/Leaderboard/{id}` which is available on this plan
+ * and provides both the full field (once published) and per-round scores.
+ *
+ * Data mapping:
+ *   - Field population: each player entry from Leaderboard.Players becomes
+ *     a golfer record keyed by PlayerID (sdioPlayerId).
+ *   - Score sync: each player's Rounds[].Score is a RAW stroke count for
+ *     that round, and Rounds[].Par is the course par for that round.
+ *     We compute Score - Par to produce the relative-to-par integer that
+ *     our schema stores in golf_golfer_scores.score.
+ */
+
 const BASE_URL = "https://api.sportsdata.io/golf/v2/JSON";
 
 function getApiKey(): string {
@@ -61,12 +78,37 @@ async function sdioFetch<T>(path: string): Promise<T> {
 function splitName(fullName: string): { firstName: string; lastName: string } {
   const parts = fullName.trim().split(" ");
   if (parts.length === 1) return { firstName: parts[0], lastName: "" };
-  const firstName = parts[0];
-  const lastName = parts.slice(1).join(" ");
-  return { firstName, lastName };
+  return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
 }
 
-async function fetchLeaderboard(sdioTournamentId: number): Promise<SdioPlayer[]> {
+/**
+ * Fetches the tournament field (list of players) from the Leaderboard endpoint.
+ * Returns one SdioPlayer per entrant; Rounds will be null until scoring begins.
+ */
+export async function fetchTournamentField(sdioTournamentId: number): Promise<SdioPlayer[]> {
+  const data = await sdioFetch<LeaderboardResponse>(`Leaderboard/${sdioTournamentId}`);
+  const players = data.Players ?? [];
+
+  return players.map(p => {
+    const { firstName, lastName } = splitName(p.Name ?? "");
+    return {
+      PlayerID: p.PlayerID,
+      FirstName: firstName,
+      LastName: lastName,
+      Country: p.Country ?? "",
+      WorldGolfRank: null,
+      IsWithdrawn: p.IsWithdrawn ?? false,
+      Rounds: null,
+    };
+  });
+}
+
+/**
+ * Fetches live round scores from the Leaderboard endpoint.
+ * Each SdioRound.Score is already converted to relative-to-par
+ * (raw strokes - course par for that round).
+ */
+export async function fetchTournamentScores(sdioTournamentId: number): Promise<SdioPlayer[]> {
   const data = await sdioFetch<LeaderboardResponse>(`Leaderboard/${sdioTournamentId}`);
   const players = data.Players ?? [];
 
@@ -76,7 +118,7 @@ async function fetchLeaderboard(sdioTournamentId: number): Promise<SdioPlayer[]>
       .filter(r => r.Score !== null)
       .map(r => ({
         RoundNumber: r.Number,
-        Score: r.Score !== null ? r.Score - r.Par : null,
+        Score: r.Score! - r.Par,
       }));
 
     return {
@@ -91,16 +133,12 @@ async function fetchLeaderboard(sdioTournamentId: number): Promise<SdioPlayer[]>
   });
 }
 
-export async function fetchTournamentField(sdioTournamentId: number): Promise<SdioPlayer[]> {
-  return fetchLeaderboard(sdioTournamentId);
-}
-
-export async function fetchTournamentScores(sdioTournamentId: number): Promise<SdioPlayer[]> {
-  return fetchLeaderboard(sdioTournamentId);
-}
-
-export async function fetchSchedule(season: number): Promise<SdioScheduleEntry[]> {
-  const data = await sdioFetch<any[]>(`Tournaments`);
+/**
+ * Fetches the full tournament schedule from the Tournaments endpoint.
+ * (The Season-scoped /Schedule/{year} endpoint is not available on this plan.)
+ */
+export async function fetchSchedule(_season?: number): Promise<SdioScheduleEntry[]> {
+  const data = await sdioFetch<any[]>("Tournaments");
   return (data ?? []).map(t => ({
     TournamentID: t.TournamentID,
     Name: t.Name,

@@ -1685,7 +1685,15 @@ export async function registerRoutes(
       }
 
       if (sdioTournamentId !== undefined) {
-        updates.sdioTournamentId = sdioTournamentId === null ? null : Number(sdioTournamentId);
+        if (sdioTournamentId !== null) {
+          const parsed = Number(sdioTournamentId);
+          if (!Number.isInteger(parsed) || parsed <= 0) {
+            return res.status(400).json({ message: "sdioTournamentId must be a positive integer" });
+          }
+          updates.sdioTournamentId = parsed;
+        } else {
+          updates.sdioTournamentId = null;
+        }
       }
 
       if (Object.keys(updates).length === 0) {
@@ -1835,9 +1843,6 @@ export async function registerRoutes(
       res.status(500).json({ message: msg });
     }
   });
-
-  // Also allow updating sdioTournamentId via PATCH /api/golf/tournaments/:id
-  // (handled in the existing PATCH route below - we'll expand it)
 
   // Leagues - IMPORTANT: /join must come BEFORE /:id
   app.post("/api/golf/leagues/join", requireAuth, async (req, res) => {
