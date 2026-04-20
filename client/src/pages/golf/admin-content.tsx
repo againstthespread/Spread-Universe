@@ -12,7 +12,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { z } from "zod";
-import { Plus, Trophy, Flag, Search, ChevronRight, ChevronDown, Users, Pencil } from "lucide-react";
+import { Plus, Trophy, Flag, Search, ChevronRight, ChevronDown, Users, Pencil, RefreshCw } from "lucide-react";
 import type { GolfTournament, GolfGolfer } from "@shared/schema";
 
 type TournamentWithGolfers = GolfTournament & { golfers: GolfGolfer[] };
@@ -20,6 +20,7 @@ type TournamentWithGolfers = GolfTournament & { golfers: GolfGolfer[] };
 const createTournamentSchema = z.object({
   name: z.string().min(1, "Name required"),
   startDate: z.string().min(1, "Start date required"),
+  sdioTournamentId: z.string().optional(),
 });
 
 type CreateTournamentForm = z.infer<typeof createTournamentSchema>;
@@ -40,12 +41,16 @@ function CreateTournamentDialog({ onSuccess }: { onSuccess: () => void }) {
 
   const form = useForm<CreateTournamentForm>({
     resolver: zodResolver(createTournamentSchema),
-    defaultValues: { name: "", startDate: "" },
+    defaultValues: { name: "", startDate: "", sdioTournamentId: "" },
   });
 
   const mutation = useMutation({
     mutationFn: (data: CreateTournamentForm) =>
-      apiRequest("POST", "/api/golf/tournaments", { ...data, startDate: new Date(data.startDate).toISOString() }),
+      apiRequest("POST", "/api/golf/tournaments", {
+        ...data,
+        startDate: new Date(data.startDate).toISOString(),
+        sdioTournamentId: data.sdioTournamentId ? parseInt(data.sdioTournamentId) : null,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/golf/tournaments"] });
       toast({ title: "Tournament created!" });
@@ -85,6 +90,16 @@ function CreateTournamentDialog({ onSuccess }: { onSuccess: () => void }) {
                 <FormControl>
                   <Input type="date" data-testid="input-tournament-date" {...field} />
                 </FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+            <FormField control={form.control} name="sdioTournamentId" render={({ field }) => (
+              <FormItem>
+                <FormLabel>SportsDataIO Tournament ID <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
+                <FormControl>
+                  <Input type="number" placeholder="e.g. 58" data-testid="input-sdio-tournament-id" {...field} />
+                </FormControl>
+                <p className="text-xs text-muted-foreground">Enables "Sync Field" and "Sync Scores" from the API</p>
                 <FormMessage />
               </FormItem>
             )} />
@@ -348,6 +363,7 @@ function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) 
   const [expanded, setExpanded] = useState(false);
   const [golferSearch, setGolferSearch] = useState("");
   const [scoreForm, setScoreForm] = useState<{ golferId: string; round: string; score: string }>({ golferId: "", round: "1", score: "" });
+  const [sdioIdInput, setSdioIdInput] = useState(tournament.sdioTournamentId?.toString() ?? "");
 
   const { data: allGolfers = [] } = useQuery<GolfGolfer[]>({
     queryKey: ["/api/golf/golfers", { excludeTournamentId: tournament.id }],
@@ -386,6 +402,41 @@ function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) 
       toast({ title: "Status updated" });
     },
     onError: () => toast({ title: "Error", description: "Failed to update status", variant: "destructive" }),
+  });
+
+  const updateSdioIdMutation = useMutation({
+    mutationFn: (sdioId: number | null) =>
+      apiRequest("PATCH", `/api/golf/tournaments/${tournament.id}`, { sdioTournamentId: sdioId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/golf/tournaments"] });
+      toast({ title: "SportsDataIO ID saved" });
+    },
+    onError: () => toast({ title: "Error", description: "Failed to save SportsDataIO ID", variant: "destructive" }),
+  });
+
+  const syncFieldMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/golf/tournaments/${tournament.id}/sync-field`, {}),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/golf/tournaments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/golf/golfers"] });
+      toast({ title: "Field synced!", description: `${data.added} golfer(s) added, ${data.created} new golfer(s) created` });
+    },
+    onError: async (err: Error) => {
+      toast({ title: "Sync failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const syncScoresMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/golf/tournaments/${tournament.id}/sync-scores`, {}),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/golf/tournaments"] });
+      toast({ title: "Scores synced!", description: `${data.scoresUpdated} score(s) updated` });
+    },
+    onError: async (err: Error) => {
+      toast({ title: "Sync failed", description: err.message, variant: "destructive" });
+    },
   });
 
   const scoreMutation = useMutation({
@@ -428,7 +479,33 @@ function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) 
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {tournament.sdioTournamentId && (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs gap-1.5"
+                  onClick={() => syncFieldMutation.mutate()}
+                  disabled={syncFieldMutation.isPending}
+                  data-testid={`button-sync-field-${tournament.id}`}
+                >
+                  <RefreshCw className={`w-3 h-3 ${syncFieldMutation.isPending ? "animate-spin" : ""}`} />
+                  {syncFieldMutation.isPending ? "Syncing..." : "Sync Field"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs gap-1.5"
+                  onClick={() => syncScoresMutation.mutate()}
+                  disabled={syncScoresMutation.isPending}
+                  data-testid={`button-sync-scores-${tournament.id}`}
+                >
+                  <RefreshCw className={`w-3 h-3 ${syncScoresMutation.isPending ? "animate-spin" : ""}`} />
+                  {syncScoresMutation.isPending ? "Syncing..." : "Sync Scores"}
+                </Button>
+              </>
+            )}
             <Badge variant={statusVariants[tournament.status] ?? "outline"} className="capitalize">
               {tournament.status}
             </Badge>
@@ -451,6 +528,31 @@ function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) 
 
       {expanded && (
         <CardContent className="space-y-4 pt-0">
+          {/* SportsDataIO ID editor */}
+          <div className="flex items-end gap-2 pb-3 border-b">
+            <div className="flex-1">
+              <label className="text-xs font-medium text-muted-foreground block mb-1">SportsDataIO Tournament ID</label>
+              <Input
+                type="number"
+                className="h-8 text-xs"
+                placeholder="e.g. 58 (from sportsdata.io)"
+                value={sdioIdInput}
+                onChange={e => setSdioIdInput(e.target.value)}
+                data-testid={`input-sdio-id-${tournament.id}`}
+              />
+            </div>
+            <Button
+              size="sm"
+              className="h-8 text-xs"
+              variant="outline"
+              onClick={() => updateSdioIdMutation.mutate(sdioIdInput ? parseInt(sdioIdInput) : null)}
+              disabled={updateSdioIdMutation.isPending}
+              data-testid={`button-save-sdio-id-${tournament.id}`}
+            >
+              {updateSdioIdMutation.isPending ? "Saving..." : "Save ID"}
+            </Button>
+          </div>
+
           {/* Current golfers */}
           <div>
             <p className="text-sm font-semibold mb-2">

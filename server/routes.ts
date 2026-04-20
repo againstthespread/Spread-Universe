@@ -32,6 +32,7 @@ import { z } from "zod";
 import session from "express-session";
 import MemoryStore from "memorystore";
 import { createHash } from "crypto";
+import { fetchTournamentField, fetchTournamentScores } from "./sportsdata";
 
 declare module "express-session" {
   interface SessionData {
@@ -1673,16 +1674,27 @@ export async function registerRoutes(
 
   app.patch("/api/golf/tournaments/:id", requireAdmin, async (req, res) => {
     try {
-      const { status } = req.body;
+      const { status, sdioTournamentId } = req.body;
+      const updates: Partial<{ status: string; sdioTournamentId: number | null }> = {};
+
       if (status !== undefined) {
         if (!["upcoming", "active", "completed"].includes(status)) {
           return res.status(400).json({ message: "Invalid status" });
         }
-        const tournament = await storage.golf_updateTournamentStatus(req.params.id, status);
-        if (!tournament) return res.status(404).json({ message: "Tournament not found" });
-        return res.json(tournament);
+        updates.status = status;
       }
-      res.status(400).json({ message: "No updatable fields provided" });
+
+      if (sdioTournamentId !== undefined) {
+        updates.sdioTournamentId = sdioTournamentId === null ? null : Number(sdioTournamentId);
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ message: "No updatable fields provided" });
+      }
+
+      const tournament = await storage.golf_updateTournament(req.params.id, updates);
+      if (!tournament) return res.status(404).json({ message: "Tournament not found" });
+      return res.json(tournament);
     } catch (error) {
       res.status(500).json({ message: "Failed to update tournament" });
     }
@@ -1737,6 +1749,95 @@ export async function registerRoutes(
       res.status(500).json({ message: "Failed to upsert score" });
     }
   });
+
+  // SportsDataIO sync routes
+  app.post("/api/golf/tournaments/:id/sync-field", requireAdmin, async (req, res) => {
+    try {
+      const tournament = await storage.golf_getTournament(req.params.id);
+      if (!tournament) return res.status(404).json({ message: "Tournament not found" });
+      if (!tournament.sdioTournamentId) {
+        return res.status(400).json({ message: "Tournament does not have a SportsDataIO tournament ID configured" });
+      }
+
+      const players = await fetchTournamentField(tournament.sdioTournamentId);
+
+      let created = 0;
+      const activePlayers = players.filter(p => !p.IsWithdrawn);
+      const beforeGolfers = await storage.golf_getTournamentGolfers(req.params.id);
+      const beforeIds = new Set(beforeGolfers.map(g => g.id));
+
+      for (const player of activePlayers) {
+        let golfer = await storage.golf_findGolferBySdioId(player.PlayerID);
+
+        if (!golfer) {
+          golfer = await storage.golf_createGolfer({
+            worldRank: player.WorldGolfRank ?? 999,
+            firstName: player.FirstName,
+            lastName: player.LastName,
+            country: player.Country ?? "",
+            photoUrl: null,
+            sdioPlayerId: player.PlayerID,
+          });
+          created++;
+        } else {
+          await storage.golf_updateGolfer(golfer.id, {
+            worldRank: player.WorldGolfRank ?? golfer.worldRank,
+            firstName: player.FirstName,
+            lastName: player.LastName,
+            country: player.Country ?? golfer.country,
+            sdioPlayerId: player.PlayerID,
+          });
+        }
+
+        await storage.golf_addGolferToTournament(req.params.id, golfer.id);
+      }
+
+      const afterGolfers = await storage.golf_getTournamentGolfers(req.params.id);
+      const added = afterGolfers.filter(g => !beforeIds.has(g.id)).length;
+
+      res.json({ ok: true, playersInField: activePlayers.length, created, added });
+    } catch (error) {
+      console.error("Golf sync-field error:", error);
+      const msg = error instanceof Error ? error.message : "Failed to sync field";
+      res.status(500).json({ message: msg });
+    }
+  });
+
+  app.post("/api/golf/tournaments/:id/sync-scores", requireAdmin, async (req, res) => {
+    try {
+      const tournament = await storage.golf_getTournament(req.params.id);
+      if (!tournament) return res.status(404).json({ message: "Tournament not found" });
+      if (!tournament.sdioTournamentId) {
+        return res.status(400).json({ message: "Tournament does not have a SportsDataIO tournament ID configured" });
+      }
+
+      const players = await fetchTournamentScores(tournament.sdioTournamentId);
+
+      let updated = 0;
+      let skipped = 0;
+
+      for (const player of players) {
+        const golfer = await storage.golf_findGolferBySdioId(player.PlayerID);
+        if (!golfer) { skipped++; continue; }
+
+        const rounds = player.Rounds ?? [];
+        for (const round of rounds) {
+          if (round.Score === null || round.Score === undefined) continue;
+          await storage.golf_upsertScore(req.params.id, golfer.id, round.RoundNumber, round.Score);
+          updated++;
+        }
+      }
+
+      res.json({ ok: true, scoresUpdated: updated, playersSkipped: skipped });
+    } catch (error) {
+      console.error("Golf sync-scores error:", error);
+      const msg = error instanceof Error ? error.message : "Failed to sync scores";
+      res.status(500).json({ message: msg });
+    }
+  });
+
+  // Also allow updating sdioTournamentId via PATCH /api/golf/tournaments/:id
+  // (handled in the existing PATCH route below - we'll expand it)
 
   // Leagues - IMPORTANT: /join must come BEFORE /:id
   app.post("/api/golf/leagues/join", requireAuth, async (req, res) => {

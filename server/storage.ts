@@ -212,6 +212,7 @@ export interface IStorage {
   golf_seedGolfersIfEmpty(): Promise<void>;
   golf_getGolfers(params?: { tournamentId?: string; excludeTournamentId?: string }): Promise<GolfGolfer[]>;
   golf_getGolfer(id: string): Promise<GolfGolfer | undefined>;
+  golf_findGolferBySdioId(sdioPlayerId: number): Promise<GolfGolfer | undefined>;
   golf_createGolfer(data: InsertGolfGolfer): Promise<GolfGolfer>;
   golf_updateGolfer(id: string, data: UpdateGolfGolfer): Promise<GolfGolfer | undefined>;
 
@@ -219,6 +220,7 @@ export interface IStorage {
   golf_getTournament(id: string): Promise<GolfTournament | undefined>;
   golf_createTournament(data: InsertGolfTournament): Promise<GolfTournament>;
   golf_updateTournamentStatus(id: string, status: string): Promise<GolfTournament | undefined>;
+  golf_updateTournament(id: string, data: Partial<Pick<GolfTournament, 'status' | 'sdioTournamentId'>>): Promise<GolfTournament | undefined>;
   golf_getTournamentGolfers(tournamentId: string): Promise<GolfGolfer[]>;
   golf_addGolferToTournament(tournamentId: string, golferId: string): Promise<void>;
   golf_removeGolferFromTournament(tournamentId: string, golferId: string): Promise<void>;
@@ -1451,6 +1453,11 @@ export class DatabaseStorage implements IStorage {
     return g || undefined;
   }
 
+  async golf_findGolferBySdioId(sdioPlayerId: number): Promise<GolfGolfer | undefined> {
+    const [g] = await db.select().from(golfGolfers).where(eq(golfGolfers.sdioPlayerId, sdioPlayerId));
+    return g || undefined;
+  }
+
   async golf_createGolfer(data: InsertGolfGolfer): Promise<GolfGolfer> {
     const [g] = await db.insert(golfGolfers).values(data).returning();
     return g;
@@ -1477,6 +1484,11 @@ export class DatabaseStorage implements IStorage {
 
   async golf_updateTournamentStatus(id: string, status: string): Promise<GolfTournament | undefined> {
     const [t] = await db.update(golfTournaments).set({ status }).where(eq(golfTournaments.id, id)).returning();
+    return t || undefined;
+  }
+
+  async golf_updateTournament(id: string, data: Partial<Pick<GolfTournament, 'status' | 'sdioTournamentId'>>): Promise<GolfTournament | undefined> {
+    const [t] = await db.update(golfTournaments).set(data).where(eq(golfTournaments.id, id)).returning();
     return t || undefined;
   }
 

@@ -703,6 +703,7 @@ export const golfGolfers = pgTable("golf_golfers", {
   lastName: text("last_name").notNull(),
   country: text("country").notNull(),
   photoUrl: text("photo_url"),
+  sdioPlayerId: integer("sdio_player_id"),
 });
 
 export const golfTournaments = pgTable("golf_tournaments", {
@@ -710,6 +711,7 @@ export const golfTournaments = pgTable("golf_tournaments", {
   name: text("name").notNull(),
   status: text("status").notNull().default("upcoming"),
   startDate: timestamp("start_date").notNull(),
+  sdioTournamentId: integer("sdio_tournament_id"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -776,6 +778,7 @@ export const insertGolfTournamentSchema = createInsertSchema(golfTournaments).om
   status: true,
 }).extend({
   startDate: z.string().or(z.date()).transform((val) => new Date(val)),
+  sdioTournamentId: z.coerce.number().int().positive().optional().nullable(),
 });
 
 export const insertGolfLeagueSchema = createInsertSchema(golfLeagues).omit({
