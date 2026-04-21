@@ -14,7 +14,7 @@ import {
   Flag, ArrowLeft, Users, Copy, Trophy, Calendar, UserPlus,
   User, CheckCircle, ChevronUp, ChevronDown, Search, Loader2,
 } from "lucide-react";
-import type { GolfLeagueDetail, GolfDraftState, GolfLeagueStandingEntry, GolfDraftPickWithDetails } from "@shared/schema";
+import type { GolfLeagueDetail, GolfDraftState, GolfLeagueStandingEntry, GolfDraftPickWithDetails, GolfStandingsResponse } from "@shared/schema";
 
 function DraftStatusBadge({ status }: { status: string }) {
   const variants: Record<string, "default" | "secondary" | "outline"> = {
@@ -83,6 +83,19 @@ function formatToPar(score: number | null | undefined): string {
   return `${score}`;
 }
 
+function formatTimeAgo(isoString: string): string {
+  const diffMs = Date.now() - new Date(isoString).getTime();
+  const diffMinutes = Math.floor(diffMs / 60000);
+  if (diffMinutes < 1) return "just now";
+  if (diffMinutes === 1) return "1 minute ago";
+  if (diffMinutes < 60) return `${diffMinutes} minutes ago`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours === 1) return "1 hour ago";
+  if (diffHours < 24) return `${diffHours} hours ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
+}
+
 function RankDisplay({ rank }: { rank: number }) {
   if (rank === 1) return <Trophy className="w-4 h-4 text-yellow-500 shrink-0" />;
   if (rank === 2) return <Trophy className="w-4 h-4 text-slate-400 shrink-0" />;
@@ -125,7 +138,7 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
       (query.state.data as GolfDraftState | undefined)?.league.draftStatus === "active" ? 4000 : false,
   });
 
-  const { data: standings = [] } = useQuery<GolfLeagueStandingEntry[]>({
+  const { data: standingsData } = useQuery<GolfStandingsResponse>({
     queryKey: ["/api/golf/leagues", params.id, "standings"],
     queryFn: async () => {
       const res = await fetch(`/api/golf/leagues/${params.id}/standings`, { credentials: "include" });
@@ -133,8 +146,16 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
       return res.json();
     },
     enabled: !!user && !!league,
-    refetchInterval: league?.draftStatus === "completed" ? 60000 : false,
+    refetchInterval: (query) => {
+      const data = query.state.data as GolfStandingsResponse | undefined;
+      const status = data?.tournamentStatus ?? league?.tournament?.status;
+      return status === "active" ? 60000 : false;
+    },
   });
+
+  const standings: GolfLeagueStandingEntry[] = standingsData?.standings ?? [];
+  const standingsLastUpdated = standingsData?.lastUpdated ?? null;
+  const tournamentStatus = standingsData?.tournamentStatus ?? league?.tournament?.status ?? "upcoming";
 
   useEffect(() => {
     if (!league) return;
@@ -876,6 +897,27 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
 
         {/* STANDINGS TAB */}
         <TabsContent value="standings" className="space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <p className="text-xs text-muted-foreground">
+              Most under par wins — only rounds with scores entered count.
+            </p>
+            <div className="flex items-center gap-3 flex-wrap">
+              {tournamentStatus === "active" && (
+                <div className="flex items-center gap-1.5" data-testid="badge-live-indicator">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
+                  </span>
+                  <span className="text-xs font-semibold text-green-600 dark:text-green-400 uppercase tracking-wide">Live</span>
+                </div>
+              )}
+              {standingsLastUpdated && (
+                <p className="text-xs text-muted-foreground" data-testid="text-last-updated">
+                  Last updated: {formatTimeAgo(standingsLastUpdated)}
+                </p>
+              )}
+            </div>
+          </div>
           {sortedStandings.length === 0 ? (
             <Card>
               <CardContent className="p-8 text-center text-muted-foreground">
@@ -886,9 +928,6 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
             </Card>
           ) : (
             <div className="space-y-3">
-              <p className="text-xs text-muted-foreground">
-                Most under par wins — only rounds with scores entered count.
-              </p>
               {sortedStandings.map((entry, index) => (
                 <Card
                   key={entry.userId}

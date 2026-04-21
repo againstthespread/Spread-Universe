@@ -729,6 +729,7 @@ export const golfGolferScores = pgTable("golf_golfer_scores", {
   golferId: varchar("golfer_id").notNull().references(() => golfGolfers.id, { onDelete: "cascade" }),
   round: integer("round").notNull(),
   score: integer("score").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
   tournamentGolferRoundUnique: unique("golf_scores_unique").on(table.tournamentId, table.golferId, table.round),
 }));
@@ -840,6 +841,12 @@ export type GolfLeagueStandingEntry = {
   username: string;
   roster: GolfRosterEntry[];
   totalScore: number | null;
+};
+
+export type GolfStandingsResponse = {
+  standings: GolfLeagueStandingEntry[];
+  lastUpdated: string | null;
+  tournamentStatus: string;
 };
 
 export type GolfLeagueDetail = GolfLeague & {

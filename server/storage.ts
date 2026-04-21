@@ -227,6 +227,7 @@ export interface IStorage {
 
   golf_upsertScore(tournamentId: string, golferId: string, round: number, score: number): Promise<GolfGolferScore>;
   golf_getScores(tournamentId: string): Promise<GolfGolferScore[]>;
+  golf_getLastScoreUpdated(tournamentId: string): Promise<Date | null>;
 
   golf_createLeague(data: InsertGolfLeague, commissionerId: string): Promise<GolfLeague>;
   golf_getLeague(id: string): Promise<GolfLeague | undefined>;
@@ -1517,19 +1518,28 @@ export class DatabaseStorage implements IStorage {
         eq(golfGolferScores.round, round)
       )
     );
+    const now = new Date();
     if (existing) {
       const [updated] = await db.update(golfGolferScores)
-        .set({ score })
+        .set({ score, updatedAt: now })
         .where(eq(golfGolferScores.id, existing.id))
         .returning();
       return updated;
     }
-    const [created] = await db.insert(golfGolferScores).values({ tournamentId, golferId, round, score }).returning();
+    const [created] = await db.insert(golfGolferScores).values({ tournamentId, golferId, round, score, updatedAt: now }).returning();
     return created;
   }
 
   async golf_getScores(tournamentId: string): Promise<GolfGolferScore[]> {
     return await db.select().from(golfGolferScores).where(eq(golfGolferScores.tournamentId, tournamentId));
+  }
+
+  async golf_getLastScoreUpdated(tournamentId: string): Promise<Date | null> {
+    const [result] = await db
+      .select({ lastUpdated: sql<Date>`MAX(${golfGolferScores.updatedAt})` })
+      .from(golfGolferScores)
+      .where(eq(golfGolferScores.tournamentId, tournamentId));
+    return result?.lastUpdated ?? null;
   }
 
   private generateJoinCode(): string {

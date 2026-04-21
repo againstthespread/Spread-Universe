@@ -2075,8 +2075,19 @@ export async function registerRoutes(
       const isMember = await storage.golf_isLeagueMember(req.params.id, userId);
       if (!isMember) return res.status(403).json({ message: "Not a member of this league" });
 
-      const standings = await storage.golf_getLeagueStandings(req.params.id);
-      res.json(standings);
+      const [standings, league] = await Promise.all([
+        storage.golf_getLeagueStandings(req.params.id),
+        storage.golf_getLeague(req.params.id),
+      ]);
+
+      const tournament = league ? await storage.golf_getTournament(league.tournamentId) : undefined;
+      const lastUpdatedDate = tournament ? await storage.golf_getLastScoreUpdated(tournament.id) : null;
+
+      res.json({
+        standings,
+        lastUpdated: lastUpdatedDate ? lastUpdatedDate.toISOString() : null,
+        tournamentStatus: tournament?.status ?? "upcoming",
+      });
     } catch (error) {
       res.status(500).json({ message: "Failed to get standings" });
     }

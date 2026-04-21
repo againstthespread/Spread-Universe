@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Flag, ArrowLeft, Trophy, Medal } from "lucide-react";
-import type { GolfLeagueStandingEntry, GolfLeagueDetail } from "@shared/schema";
+import type { GolfStandingsResponse, GolfLeagueDetail } from "@shared/schema";
 
 function RankIcon({ rank }: { rank: number }) {
   if (rank === 1) return <Trophy className="w-4 h-4 text-yellow-500" />;
@@ -16,12 +16,24 @@ function RankIcon({ rank }: { rank: number }) {
 
 function ScoreDisplay({ score }: { score: number | null }) {
   if (score === null) return <span className="text-muted-foreground text-sm">—</span>;
-  const sign = score < 0 ? "" : "+";
   return (
     <span className={score < 0 ? "text-red-600 font-bold" : score === 0 ? "font-medium" : "text-muted-foreground"}>
       {score}
     </span>
   );
+}
+
+function formatTimeAgo(isoString: string): string {
+  const diffMs = Date.now() - new Date(isoString).getTime();
+  const diffMinutes = Math.floor(diffMs / 60000);
+  if (diffMinutes < 1) return "just now";
+  if (diffMinutes === 1) return "1 minute ago";
+  if (diffMinutes < 60) return `${diffMinutes} minutes ago`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours === 1) return "1 hour ago";
+  if (diffHours < 24) return `${diffHours} hours ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
 }
 
 export default function GolfStandings({ params }: { params: { id: string } }) {
@@ -37,7 +49,7 @@ export default function GolfStandings({ params }: { params: { id: string } }) {
     enabled: !!user,
   });
 
-  const { data: standings = [], isLoading } = useQuery<GolfLeagueStandingEntry[]>({
+  const { data: standingsData, isLoading } = useQuery<GolfStandingsResponse>({
     queryKey: ["/api/golf/leagues", params.id, "standings"],
     queryFn: async () => {
       const res = await fetch(`/api/golf/leagues/${params.id}/standings`, { credentials: "include" });
@@ -45,8 +57,16 @@ export default function GolfStandings({ params }: { params: { id: string } }) {
       return res.json();
     },
     enabled: !!user,
-    refetchInterval: league?.draftStatus === "completed" ? 60000 : false,
+    refetchInterval: (query) => {
+      const data = query.state.data as GolfStandingsResponse | undefined;
+      const status = data?.tournamentStatus ?? league?.tournament?.status;
+      return status === "active" ? 60000 : false;
+    },
   });
+
+  const standings = standingsData?.standings ?? [];
+  const lastUpdated = standingsData?.lastUpdated ?? null;
+  const tournamentStatus = standingsData?.tournamentStatus ?? league?.tournament?.status ?? "upcoming";
 
   if (isLoading) {
     return (
@@ -79,7 +99,23 @@ export default function GolfStandings({ params }: { params: { id: string } }) {
             {league.name} · {league.tournament?.name}
           </p>
         )}
-        <p className="text-xs text-muted-foreground mt-1">Lower total score wins. Only rounds with scores entered count.</p>
+        <div className="flex items-center gap-3 mt-1 flex-wrap">
+          <p className="text-xs text-muted-foreground">Lower total score wins. Only rounds with scores entered count.</p>
+          {tournamentStatus === "active" && (
+            <div className="flex items-center gap-1.5" data-testid="badge-live-indicator">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
+              </span>
+              <span className="text-xs font-semibold text-green-600 dark:text-green-400 uppercase tracking-wide">Live</span>
+            </div>
+          )}
+          {lastUpdated && (
+            <p className="text-xs text-muted-foreground" data-testid="text-last-updated">
+              Last updated: {formatTimeAgo(lastUpdated)}
+            </p>
+          )}
+        </div>
       </div>
 
       {standings.length === 0 ? (
