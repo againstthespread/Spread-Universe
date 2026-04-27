@@ -1476,50 +1476,54 @@ export class DatabaseStorage implements IStorage {
     let merged = 0;
 
     for (const canonical of seeded) {
-      const [dup] = await db.select().from(golfGolfers).where(
+      const dups = await db.select().from(golfGolfers).where(
         and(
           sql`lower(${golfGolfers.firstName}) = lower(${canonical.firstName})`,
           sql`lower(${golfGolfers.lastName}) = lower(${canonical.lastName})`,
           sql`${golfGolfers.sdioPlayerId} IS NOT NULL`
         )
       );
-      if (!dup) continue;
+      if (dups.length === 0) continue;
 
-      // Re-point golfTournamentGolfers: delete conflicts, then update remaining
-      await db.execute(sql`
-        DELETE FROM golf_tournament_golfers
-        WHERE golfer_id = ${dup.id}
-        AND tournament_id IN (
-          SELECT tournament_id FROM golf_tournament_golfers WHERE golfer_id = ${canonical.id}
-        )
-      `);
-      await db.update(golfTournamentGolfers).set({ golferId: canonical.id }).where(eq(golfTournamentGolfers.golferId, dup.id));
+      for (const dup of dups) {
+        await db.transaction(async (tx) => {
+          // Re-point golfTournamentGolfers: delete conflicts, then update remaining
+          await tx.execute(sql`
+            DELETE FROM golf_tournament_golfers
+            WHERE golfer_id = ${dup.id}
+            AND tournament_id IN (
+              SELECT tournament_id FROM golf_tournament_golfers WHERE golfer_id = ${canonical.id}
+            )
+          `);
+          await tx.update(golfTournamentGolfers).set({ golferId: canonical.id }).where(eq(golfTournamentGolfers.golferId, dup.id));
 
-      // Re-point golfGolferScores: delete conflicts, then update remaining
-      await db.execute(sql`
-        DELETE FROM golf_golfer_scores
-        WHERE golfer_id = ${dup.id}
-        AND (tournament_id, round) IN (
-          SELECT tournament_id, round FROM golf_golfer_scores WHERE golfer_id = ${canonical.id}
-        )
-      `);
-      await db.update(golfGolferScores).set({ golferId: canonical.id }).where(eq(golfGolferScores.golferId, dup.id));
+          // Re-point golfGolferScores: delete conflicts, then update remaining
+          await tx.execute(sql`
+            DELETE FROM golf_golfer_scores
+            WHERE golfer_id = ${dup.id}
+            AND (tournament_id, round) IN (
+              SELECT tournament_id, round FROM golf_golfer_scores WHERE golfer_id = ${canonical.id}
+            )
+          `);
+          await tx.update(golfGolferScores).set({ golferId: canonical.id }).where(eq(golfGolferScores.golferId, dup.id));
 
-      // Re-point golfDraftPicks: delete conflicts, then update remaining
-      await db.execute(sql`
-        DELETE FROM golf_draft_picks
-        WHERE golfer_id = ${dup.id}
-        AND league_id IN (
-          SELECT league_id FROM golf_draft_picks WHERE golfer_id = ${canonical.id}
-        )
-      `);
-      await db.update(golfDraftPicks).set({ golferId: canonical.id }).where(eq(golfDraftPicks.golferId, dup.id));
+          // Re-point golfDraftPicks: delete conflicts, then update remaining
+          await tx.execute(sql`
+            DELETE FROM golf_draft_picks
+            WHERE golfer_id = ${dup.id}
+            AND league_id IN (
+              SELECT league_id FROM golf_draft_picks WHERE golfer_id = ${canonical.id}
+            )
+          `);
+          await tx.update(golfDraftPicks).set({ golferId: canonical.id }).where(eq(golfDraftPicks.golferId, dup.id));
 
-      // Stamp SDIO ID onto canonical row and delete the duplicate
-      await db.update(golfGolfers).set({ sdioPlayerId: dup.sdioPlayerId }).where(eq(golfGolfers.id, canonical.id));
-      await db.delete(golfGolfers).where(eq(golfGolfers.id, dup.id));
+          // Stamp SDIO ID onto canonical row and delete the duplicate
+          await tx.update(golfGolfers).set({ sdioPlayerId: dup.sdioPlayerId }).where(eq(golfGolfers.id, canonical.id));
+          await tx.delete(golfGolfers).where(eq(golfGolfers.id, dup.id));
+        });
 
-      merged++;
+        merged++;
+      }
     }
 
     return merged;
