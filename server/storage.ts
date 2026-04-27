@@ -213,8 +213,10 @@ export interface IStorage {
   golf_getGolfers(params?: { tournamentId?: string; excludeTournamentId?: string }): Promise<GolfGolfer[]>;
   golf_getGolfer(id: string): Promise<GolfGolfer | undefined>;
   golf_findGolferBySdioId(sdioPlayerId: number): Promise<GolfGolfer | undefined>;
+  golf_findGolferByName(firstName: string, lastName: string): Promise<GolfGolfer | undefined>;
   golf_createGolfer(data: InsertGolfGolfer): Promise<GolfGolfer>;
   golf_updateGolfer(id: string, data: UpdateGolfGolfer): Promise<GolfGolfer | undefined>;
+  golf_mergeDuplicateGolfers(): Promise<number>;
 
   golf_getTournaments(): Promise<GolfTournament[]>;
   golf_getTournament(id: string): Promise<GolfTournament | undefined>;
@@ -1457,6 +1459,70 @@ export class DatabaseStorage implements IStorage {
   async golf_findGolferBySdioId(sdioPlayerId: number): Promise<GolfGolfer | undefined> {
     const [g] = await db.select().from(golfGolfers).where(eq(golfGolfers.sdioPlayerId, sdioPlayerId));
     return g || undefined;
+  }
+
+  async golf_findGolferByName(firstName: string, lastName: string): Promise<GolfGolfer | undefined> {
+    const [g] = await db.select().from(golfGolfers).where(
+      and(
+        sql`lower(${golfGolfers.firstName}) = lower(${firstName})`,
+        sql`lower(${golfGolfers.lastName}) = lower(${lastName})`
+      )
+    );
+    return g || undefined;
+  }
+
+  async golf_mergeDuplicateGolfers(): Promise<number> {
+    const seeded = await db.select().from(golfGolfers).where(sql`${golfGolfers.sdioPlayerId} IS NULL`);
+    let merged = 0;
+
+    for (const canonical of seeded) {
+      const [dup] = await db.select().from(golfGolfers).where(
+        and(
+          sql`lower(${golfGolfers.firstName}) = lower(${canonical.firstName})`,
+          sql`lower(${golfGolfers.lastName}) = lower(${canonical.lastName})`,
+          sql`${golfGolfers.sdioPlayerId} IS NOT NULL`
+        )
+      );
+      if (!dup) continue;
+
+      // Re-point golfTournamentGolfers: delete conflicts, then update remaining
+      await db.execute(sql`
+        DELETE FROM golf_tournament_golfers
+        WHERE golfer_id = ${dup.id}
+        AND tournament_id IN (
+          SELECT tournament_id FROM golf_tournament_golfers WHERE golfer_id = ${canonical.id}
+        )
+      `);
+      await db.update(golfTournamentGolfers).set({ golferId: canonical.id }).where(eq(golfTournamentGolfers.golferId, dup.id));
+
+      // Re-point golfGolferScores: delete conflicts, then update remaining
+      await db.execute(sql`
+        DELETE FROM golf_golfer_scores
+        WHERE golfer_id = ${dup.id}
+        AND (tournament_id, round) IN (
+          SELECT tournament_id, round FROM golf_golfer_scores WHERE golfer_id = ${canonical.id}
+        )
+      `);
+      await db.update(golfGolferScores).set({ golferId: canonical.id }).where(eq(golfGolferScores.golferId, dup.id));
+
+      // Re-point golfDraftPicks: delete conflicts, then update remaining
+      await db.execute(sql`
+        DELETE FROM golf_draft_picks
+        WHERE golfer_id = ${dup.id}
+        AND league_id IN (
+          SELECT league_id FROM golf_draft_picks WHERE golfer_id = ${canonical.id}
+        )
+      `);
+      await db.update(golfDraftPicks).set({ golferId: canonical.id }).where(eq(golfDraftPicks.golferId, dup.id));
+
+      // Stamp SDIO ID onto canonical row and delete the duplicate
+      await db.update(golfGolfers).set({ sdioPlayerId: dup.sdioPlayerId }).where(eq(golfGolfers.id, canonical.id));
+      await db.delete(golfGolfers).where(eq(golfGolfers.id, dup.id));
+
+      merged++;
+    }
+
+    return merged;
   }
 
   async golf_createGolfer(data: InsertGolfGolfer): Promise<GolfGolfer> {

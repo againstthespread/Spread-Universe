@@ -452,8 +452,12 @@ export async function registerRoutes(
   // Initialize rounds on first access
   await storage.mm_initializeRounds();
 
-  // Golf Fantasy - seed golfers on startup
+  // Golf Fantasy - seed golfers on startup, then merge any existing duplicates
   await storage.golf_seedGolfersIfEmpty();
+  const mergedCount = await storage.golf_mergeDuplicateGolfers();
+  if (mergedCount > 0) {
+    console.log(`[golf] Merged ${mergedCount} duplicate golfer record(s)`);
+  }
 
   app.get("/api/marchmadness/teams", requireAuth, async (req, res) => {
     try {
@@ -1776,6 +1780,10 @@ export async function registerRoutes(
 
       for (const player of activePlayers) {
         let golfer = await storage.golf_findGolferBySdioId(player.PlayerID);
+
+        if (!golfer) {
+          golfer = await storage.golf_findGolferByName(player.FirstName, player.LastName);
+        }
 
         if (!golfer) {
           golfer = await storage.golf_createGolfer({
