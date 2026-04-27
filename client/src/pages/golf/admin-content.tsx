@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { z } from "zod";
 import { Plus, Trophy, Flag, Search, ChevronRight, ChevronDown, Users, Pencil, RefreshCw } from "lucide-react";
-import type { GolfTournament, GolfGolfer } from "@shared/schema";
+import type { GolfTournament, GolfGolfer, GolfGolferScore } from "@shared/schema";
 
 type TournamentWithGolfers = GolfTournament & { golfers: GolfGolfer[] };
 
@@ -358,6 +358,17 @@ function GolfersSection() {
   );
 }
 
+function fmtScore(score: number): string {
+  if (score === 0) return "E";
+  return score > 0 ? `+${score}` : `${score}`;
+}
+
+function scoreClass(score: number): string {
+  if (score < 0) return "text-green-600 dark:text-green-400 font-medium";
+  if (score > 0) return "text-red-500 font-medium";
+  return "text-muted-foreground";
+}
+
 function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) {
   const { toast } = useToast();
   const [expanded, setExpanded] = useState(false);
@@ -369,6 +380,15 @@ function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) 
     queryKey: ["/api/golf/golfers", { excludeTournamentId: tournament.id }],
     queryFn: async () => {
       const res = await fetch(`/api/golf/golfers?excludeTournamentId=${tournament.id}`, { credentials: "include" });
+      return res.json();
+    },
+    enabled: expanded,
+  });
+
+  const { data: scores = [], isLoading: scoresLoading } = useQuery<GolfGolferScore[]>({
+    queryKey: ["/api/golf/tournaments", tournament.id, "scores"],
+    queryFn: async () => {
+      const res = await fetch(`/api/golf/tournaments/${tournament.id}/scores`, { credentials: "include" });
       return res.json();
     },
     enabled: expanded,
@@ -438,6 +458,7 @@ function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) 
     onSuccess: async (res) => {
       const data = await res.json();
       queryClient.invalidateQueries({ queryKey: ["/api/golf/tournaments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/golf/tournaments", tournament.id, "scores"] });
       toast({ title: "Scores synced!", description: `${data.scoresUpdated} score(s) updated` });
     },
     onError: async (err: Error) => {
@@ -454,6 +475,7 @@ function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) 
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/golf/tournaments", tournament.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/golf/tournaments", tournament.id, "scores"] });
       toast({ title: "Score entered" });
       setScoreForm(f => ({ ...f, score: "" }));
     },
@@ -463,6 +485,16 @@ function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) 
   const filteredGolfers = allGolfers.filter(g =>
     `${g.firstName} ${g.lastName}`.toLowerCase().includes(golferSearch.toLowerCase())
   );
+
+  const sortedGolfers = [...tournament.golfers].sort((a, b) =>
+    a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName)
+  );
+
+  const scoreMap = new Map<string, Map<number, number>>();
+  for (const s of scores) {
+    if (!scoreMap.has(s.golferId)) scoreMap.set(s.golferId, new Map());
+    scoreMap.get(s.golferId)!.set(s.round, s.score);
+  }
 
   const statusVariants: Record<string, "default" | "secondary" | "outline"> = {
     upcoming: "outline",
@@ -559,31 +591,81 @@ function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) 
             </Button>
           </div>
 
-          {/* Current golfers */}
+          {/* Leaderboard grid */}
           <div>
             <p className="text-sm font-semibold mb-2">
-              Golfers in Tournament ({tournament.golfers.length})
+              Field ({tournament.golfers.length} {tournament.golfers.length === 1 ? "player" : "players"})
             </p>
-            <div className="grid gap-1 max-h-40 overflow-y-auto">
-              {tournament.golfers.map(g => (
-                <div key={g.id} className="flex items-center justify-between text-sm p-1.5 rounded bg-muted/40">
-                  <span>#{g.worldRank} {g.firstName} {g.lastName}</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-2 text-xs text-red-500 hover:text-red-600"
-                    onClick={() => removeGolferMutation.mutate(g.id)}
-                    disabled={removeGolferMutation.isPending}
-                    data-testid={`button-remove-golfer-${g.id}`}
-                  >
-                    Remove
-                  </Button>
-                </div>
-              ))}
-              {tournament.golfers.length === 0 && (
-                <p className="text-xs text-muted-foreground p-2">No golfers added yet</p>
-              )}
-            </div>
+            {tournament.golfers.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-2">No golfers added yet. Use Sync Field or add golfers below.</p>
+            ) : scoresLoading ? (
+              <div className="space-y-1">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="h-8 rounded bg-muted/40 animate-pulse" />
+                ))}
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded border" data-testid={`table-leaderboard-${tournament.id}`}>
+                <table className="w-full text-xs min-w-[420px]">
+                  <thead>
+                    <tr className="border-b bg-muted/30">
+                      <th className="text-left px-3 py-2 font-semibold">Player</th>
+                      {[1, 2, 3, 4].map(r => (
+                        <th key={r} className="text-center px-2 py-2 font-semibold w-12">R{r}</th>
+                      ))}
+                      <th className="text-center px-2 py-2 font-semibold w-16">Total</th>
+                      <th className="w-16" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedGolfers.map(g => {
+                      const golferScores = scoreMap.get(g.id);
+                      const roundScores = [1, 2, 3, 4].map(r => golferScores?.get(r));
+                      const playedRounds = roundScores.filter(s => s !== undefined) as number[];
+                      const total = playedRounds.length > 0 ? playedRounds.reduce((a, b) => a + b, 0) : null;
+                      return (
+                        <tr
+                          key={g.id}
+                          className="border-b last:border-b-0 hover:bg-muted/20"
+                          data-testid={`row-golfer-${g.id}`}
+                        >
+                          <td className="px-3 py-2 font-medium">
+                            {g.firstName} {g.lastName}
+                            <span className="text-muted-foreground font-normal ml-1.5 text-[10px]">{g.country}</span>
+                          </td>
+                          {roundScores.map((s, i) => (
+                            <td key={i} className="text-center px-2 py-2 w-12">
+                              {s === undefined
+                                ? <span className="text-muted-foreground/40">—</span>
+                                : <span className={scoreClass(s)}>{fmtScore(s)}</span>
+                              }
+                            </td>
+                          ))}
+                          <td className="text-center px-2 py-2 w-16 font-semibold">
+                            {total === null
+                              ? <span className="text-muted-foreground/40">—</span>
+                              : <span className={scoreClass(total)}>{fmtScore(total)}</span>
+                            }
+                          </td>
+                          <td className="text-right pr-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2 text-[10px] text-red-500 hover:text-red-600"
+                              onClick={() => removeGolferMutation.mutate(g.id)}
+                              disabled={removeGolferMutation.isPending}
+                              data-testid={`button-remove-golfer-${g.id}`}
+                            >
+                              ✕
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           {/* Add golfer */}
