@@ -9,10 +9,10 @@
  * Data mapping:
  *   - Field population: each player entry from Leaderboard.Players becomes
  *     a golfer record keyed by PlayerID (sdioPlayerId).
- *   - Score sync: each player's Rounds[].Score is a RAW stroke count for
- *     that round, and Rounds[].Par is the course par for that round.
- *     We compute Score - Par to produce the relative-to-par integer that
- *     our schema stores in golf_golfer_scores.score.
+ *   - Score sync: the round-level `Score` field from SportsDataIO is a
+ *     simulation/model value and should NOT be used. Instead, we sum each
+ *     hole's `ToPar` value within `Rounds[].Holes` to get the actual
+ *     relative-to-par score for that round.
  */
 
 const BASE_URL = "https://api.sportsdata.io/golf/v2/JSON";
@@ -46,10 +46,15 @@ export interface SdioScheduleEntry {
   IsCanceled: boolean;
 }
 
+interface LeaderboardHole {
+  ToPar: number | null;
+}
+
 interface LeaderboardRound {
   Number: number;
   Par: number;
   Score: number | null;
+  Holes: LeaderboardHole[] | null;
 }
 
 interface LeaderboardPlayer {
@@ -105,8 +110,9 @@ export async function fetchTournamentField(sdioTournamentId: number): Promise<Sd
 
 /**
  * Fetches live round scores from the Leaderboard endpoint.
- * Each SdioRound.Score is already converted to relative-to-par
- * (raw strokes - course par for that round).
+ * Each SdioRound.Score is the sum of hole-level ToPar values for that round,
+ * which gives the actual relative-to-par score (e.g. -8 for an 8-under round).
+ * The round-level Score field from the API is a simulation value and is ignored.
  */
 export async function fetchTournamentScores(sdioTournamentId: number): Promise<SdioPlayer[]> {
   const data = await sdioFetch<LeaderboardResponse>(`Leaderboard/${sdioTournamentId}`);
@@ -115,11 +121,13 @@ export async function fetchTournamentScores(sdioTournamentId: number): Promise<S
   return players.map(p => {
     const { firstName, lastName } = splitName(p.Name ?? "");
     const rounds: SdioRound[] = (p.Rounds ?? [])
-      .filter(r => r.Score !== null)
-      .map(r => ({
-        RoundNumber: r.Number,
-        Score: r.Score! - r.Par,
-      }));
+      .map(r => {
+        const holes = r.Holes ?? [];
+        if (holes.length === 0) return null;
+        const score = holes.reduce((sum, h) => sum + (h.ToPar ?? 0), 0);
+        return { RoundNumber: r.Number, Score: score };
+      })
+      .filter((r): r is SdioRound => r !== null);
 
     return {
       PlayerID: p.PlayerID,
