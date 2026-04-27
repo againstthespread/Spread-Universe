@@ -605,6 +605,7 @@ function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) 
                 ))}
               </div>
             ) : (
+              <>
               <div className="overflow-x-auto rounded border" data-testid={`table-leaderboard-${tournament.id}`}>
                 <table className="w-full text-xs min-w-[420px]">
                   <thead>
@@ -614,7 +615,6 @@ function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) 
                         <th key={r} className="text-center px-2 py-2 font-semibold w-12">R{r}</th>
                       ))}
                       <th className="text-center px-2 py-2 font-semibold w-16">Total</th>
-                      <th className="w-16" />
                     </tr>
                   </thead>
                   <tbody>
@@ -629,10 +629,7 @@ function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) 
                           className="border-b last:border-b-0 hover:bg-muted/20"
                           data-testid={`row-golfer-${g.id}`}
                         >
-                          <td className="px-3 py-2 font-medium">
-                            {g.firstName} {g.lastName}
-                            <span className="text-muted-foreground font-normal ml-1.5 text-[10px]">{g.country}</span>
-                          </td>
+                          <td className="px-3 py-2 font-medium">{g.firstName} {g.lastName}</td>
                           {roundScores.map((s, i) => (
                             <td key={i} className="text-center px-2 py-2 w-12">
                               {s === undefined
@@ -647,24 +644,28 @@ function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) 
                               : <span className={scoreClass(total)}>{fmtScore(total)}</span>
                             }
                           </td>
-                          <td className="text-right pr-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 px-2 text-[10px] text-red-500 hover:text-red-600"
-                              onClick={() => removeGolferMutation.mutate(g.id)}
-                              disabled={removeGolferMutation.isPending}
-                              data-testid={`button-remove-golfer-${g.id}`}
-                            >
-                              ✕
-                            </Button>
-                          </td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
               </div>
+              {/* Remove players — compact list outside the grid */}
+              <div className="flex flex-wrap gap-1 pt-1">
+                {sortedGolfers.map(g => (
+                  <div key={g.id} className="flex items-center gap-1 text-[10px] bg-muted/40 rounded px-2 py-0.5">
+                    <span>{g.firstName} {g.lastName}</span>
+                    <button
+                      className="text-red-400 hover:text-red-600 ml-0.5 leading-none"
+                      onClick={() => removeGolferMutation.mutate(g.id)}
+                      disabled={removeGolferMutation.isPending}
+                      data-testid={`button-remove-golfer-${g.id}`}
+                      title={`Remove ${g.firstName} ${g.lastName}`}
+                    >✕</button>
+                  </div>
+                ))}
+              </div>
+              </>
             )}
           </div>
 
