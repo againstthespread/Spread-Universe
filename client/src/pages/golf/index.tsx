@@ -20,28 +20,10 @@ import type { GolfLeague, GolfTournament } from "@shared/schema";
 
 type GolfLeagueWithTournament = GolfLeague & { tournament: GolfTournament };
 
-function naiveETToUTC(etStr: string): string {
-  const [year, month, day, hour, minute] = etStr.split(/\D+/).map(Number);
-  for (const offsetHours of [4, 5]) {
-    const candidate = new Date(Date.UTC(year, month - 1, day, hour + offsetHours, minute));
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'America/New_York',
-      hour: 'numeric', minute: '2-digit', hour12: false,
-    }).formatToParts(candidate);
-    const etH = parseInt(parts.find(p => p.type === 'hour')!.value);
-    const etM = parseInt(parts.find(p => p.type === 'minute')!.value);
-    if ((etH % 24) === (hour % 24) && etM === minute) {
-      return candidate.toISOString();
-    }
-  }
-  return new Date(Date.UTC(year, month - 1, day, hour + 5, minute)).toISOString();
-}
 
 const createLeagueSchema = z.object({
   name: z.string().min(1, "Name is required").max(60),
   tournamentId: z.string().min(1, "Tournament required"),
-  maxSize: z.coerce.number().int().min(2).max(20),
-  draftStartTime: z.string().min(1, "Draft start time required"),
   draftOrderType: z.enum(["random", "manual"]),
 });
 
@@ -66,17 +48,12 @@ function CreateLeagueDialog() {
     defaultValues: {
       name: "",
       tournamentId: "",
-      maxSize: 8,
-      draftStartTime: "",
       draftOrderType: "random",
     },
   });
 
   const mutation = useMutation({
-    mutationFn: (data: CreateLeagueForm) => apiRequest("POST", "/api/golf/leagues", {
-      ...data,
-      draftStartTime: naiveETToUTC(data.draftStartTime),
-    }),
+    mutationFn: (data: CreateLeagueForm) => apiRequest("POST", "/api/golf/leagues", data),
     onSuccess: async (res) => {
       const league = await res.json();
       queryClient.invalidateQueries({ queryKey: ["/api/golf/leagues"] });
@@ -127,33 +104,6 @@ function CreateLeagueDialog() {
                     ))}
                   </SelectContent>
                 </Select>
-                <FormMessage />
-              </FormItem>
-            )} />
-            <FormField control={form.control} name="maxSize" render={({ field }) => (
-              <FormItem>
-                <FormLabel>Max Teams</FormLabel>
-                <Select onValueChange={v => field.onChange(parseInt(v))} value={String(field.value)}>
-                  <FormControl>
-                    <SelectTrigger data-testid="select-max-size">
-                      <SelectValue />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {[2,4,6,8,10,12,14,16,18,20].map(n => (
-                      <SelectItem key={n} value={String(n)}>{n} teams</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )} />
-            <FormField control={form.control} name="draftStartTime" render={({ field }) => (
-              <FormItem>
-                <FormLabel>Draft Start Time <span className="text-muted-foreground font-normal">(Eastern Time)</span></FormLabel>
-                <FormControl>
-                  <Input data-testid="input-draft-time" type="datetime-local" {...field} />
-                </FormControl>
                 <FormMessage />
               </FormItem>
             )} />
@@ -340,12 +290,14 @@ export default function GolfDashboard() {
                       </div>
                       <div className="flex items-center gap-2">
                         <Users className="w-4 h-4" />
-                        Up to {league.maxSize} teams
+                        {league.maxSize ? `Up to ${league.maxSize} teams` : "Open roster"}
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Calendar className="w-4 h-4" />
-                        Draft: {new Date(league.draftStartTime).toLocaleDateString()}
-                      </div>
+                      {league.draftStartTime && (
+                        <div className="flex items-center gap-2">
+                          <Calendar className="w-4 h-4" />
+                          Draft: {new Date(league.draftStartTime).toLocaleDateString()}
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 </Link>

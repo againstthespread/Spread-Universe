@@ -291,12 +291,11 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
   }
 
   const isCommissioner = user?.id === league.commissionerId;
-  const draftTimeReached = now >= new Date(league.draftStartTime).getTime();
+  const draftTimeReached = !league.draftStartTime || now >= new Date(league.draftStartTime).getTime();
   const canStartDraft =
     isCommissioner &&
     league.draftStatus === "pending" &&
-    league.members.length >= 2 &&
-    draftTimeReached;
+    league.members.length >= 2;
 
   const memberMap = Object.fromEntries(league.members.map(m => [m.userId, m.user.username]));
   const savedOrder = league.draftOrder ?? league.members.map(m => m.userId);
@@ -386,16 +385,20 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
                   <span className="text-muted-foreground flex items-center gap-2">
                     <Users className="w-4 h-4" /> Members
                   </span>
-                  <span className="font-medium">{league.members.length} / {league.maxSize}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground flex items-center gap-2">
-                    <Calendar className="w-4 h-4" /> Draft Time
-                  </span>
-                  <span className="font-medium text-right text-xs">
-                    {new Date(league.draftStartTime).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET
+                  <span className="font-medium">
+                    {league.members.length}{league.maxSize ? ` / ${league.maxSize}` : ""}
                   </span>
                 </div>
+                {league.draftStartTime && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground flex items-center gap-2">
+                      <Calendar className="w-4 h-4" /> Draft Time
+                    </span>
+                    <span className="font-medium text-right text-xs">
+                      {new Date(league.draftStartTime).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET
+                    </span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Draft Order</span>
                   <span className="font-medium capitalize">{league.draftOrderType}</span>
@@ -431,7 +434,7 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
                 </div>
               ))}
 
-              {isCommissioner && league.draftStatus === "pending" && league.members.length < league.maxSize && (
+              {isCommissioner && league.draftStatus === "pending" && (
                 <div className="flex gap-2 mt-4 pt-4 border-t">
                   <Input
                     value={inviteUsername}
@@ -463,11 +466,13 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
         <TabsContent value="draft" className="space-y-4">
           {league.draftStatus === "pending" && (
             <div className="space-y-4">
-              <Card className="border-emerald-200 dark:border-emerald-800">
-                <CardContent className="p-6">
-                  <CountdownTimer targetTime={league.draftStartTime} />
-                </CardContent>
-              </Card>
+              {league.draftStartTime && (
+                <Card className="border-emerald-200 dark:border-emerald-800">
+                  <CardContent className="p-6">
+                    <CountdownTimer targetTime={league.draftStartTime} />
+                  </CardContent>
+                </Card>
+              )}
 
               <Card>
                 <CardHeader className="pb-2">
@@ -564,11 +569,6 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
               {isCommissioner && !canStartDraft && league.members.length < 2 && (
                 <p className="text-center text-sm text-muted-foreground">
                   At least 2 members needed to start the draft.
-                </p>
-              )}
-              {isCommissioner && !canStartDraft && league.members.length >= 2 && !draftTimeReached && (
-                <p className="text-center text-sm text-muted-foreground">
-                  Draft can be started after the scheduled draft time.
                 </p>
               )}
             </div>

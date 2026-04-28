@@ -1865,7 +1865,7 @@ export async function registerRoutes(
       if (isMember) return res.status(400).json({ message: "Already a member" });
 
       const members = await storage.golf_getLeagueMembers(league.id);
-      if (members.length >= league.maxSize) return res.status(400).json({ message: "League is full" });
+      if (league.maxSize !== null && members.length >= league.maxSize) return res.status(400).json({ message: "League is full" });
 
       if (league.draftStatus !== "pending") return res.status(400).json({ message: "Draft has already started" });
 
@@ -1932,7 +1932,7 @@ export async function registerRoutes(
       if (isMember) return res.status(400).json({ message: "User already in league" });
 
       const members = await storage.golf_getLeagueMembers(req.params.id);
-      if (members.length >= league.maxSize) return res.status(400).json({ message: "League is full" });
+      if (league.maxSize !== null && members.length >= league.maxSize) return res.status(400).json({ message: "League is full" });
 
       if (league.draftStatus !== "pending") return res.status(400).json({ message: "Draft has already started" });
 

@@ -739,9 +739,9 @@ export const golfLeagues = pgTable("golf_leagues", {
   tournamentId: varchar("tournament_id").notNull().references(() => golfTournaments.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   commissionerId: varchar("commissioner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  maxSize: integer("max_size").notNull(),
+  maxSize: integer("max_size"),
   joinCode: varchar("join_code", { length: 8 }).notNull().unique(),
-  draftStartTime: timestamp("draft_start_time").notNull(),
+  draftStartTime: timestamp("draft_start_time"),
   draftStatus: text("draft_status").notNull().default("pending"),
   draftOrderType: text("draft_order_type").notNull().default("random"),
   draftOrder: text("draft_order").array(),
@@ -790,8 +790,8 @@ export const insertGolfLeagueSchema = createInsertSchema(golfLeagues).omit({
   draftOrder: true,
   createdAt: true,
 }).extend({
-  maxSize: z.coerce.number().int().min(2).max(20),
-  draftStartTime: z.string().or(z.date()).transform((val) => new Date(val)),
+  maxSize: z.coerce.number().int().min(2).max(200).optional().nullable(),
+  draftStartTime: z.string().or(z.date()).transform((val) => new Date(val)).optional().nullable(),
   draftOrderType: z.enum(["manual", "random"]).default("random"),
 });
 
