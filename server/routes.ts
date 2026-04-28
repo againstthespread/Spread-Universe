@@ -1839,7 +1839,7 @@ export async function registerRoutes(
         const rounds = player.Rounds ?? [];
         for (const round of rounds) {
           if (round.Score === null || round.Score === undefined) continue;
-          await storage.golf_upsertScore(req.params.id, golfer.id, round.RoundNumber, round.Score);
+          await storage.golf_upsertScore(req.params.id, golfer.id, round.RoundNumber, round.Score, player.Position ?? null);
           updated++;
         }
       }
@@ -2093,10 +2093,11 @@ export async function registerRoutes(
 
       res.json({
         standings,
-        lastUpdated: lastUpdatedDate ? lastUpdatedDate.toISOString() : null,
+        lastUpdated: lastUpdatedDate ? new Date(lastUpdatedDate).toISOString() : null,
         tournamentStatus: tournament?.status ?? "upcoming",
       });
     } catch (error) {
+      console.error("Failed to get standings:", error);
       res.status(500).json({ message: "Failed to get standings" });
     }
   });

@@ -30,6 +30,7 @@ export interface SdioPlayer {
   Country: string;
   WorldGolfRank: number | null;
   IsWithdrawn: boolean;
+  Position: string | null;
   Rounds: SdioRound[] | null;
 }
 
@@ -62,6 +63,7 @@ interface LeaderboardPlayer {
   Name: string;
   Country: string | null;
   IsWithdrawn: boolean;
+  Position: string | null;
   Rounds: LeaderboardRound[] | null;
 }
 
@@ -103,6 +105,7 @@ export async function fetchTournamentField(sdioTournamentId: number): Promise<Sd
       Country: p.Country ?? "",
       WorldGolfRank: null,
       IsWithdrawn: p.IsWithdrawn ?? false,
+      Position: p.Position ?? null,
       Rounds: null,
     };
   });
@@ -136,6 +139,7 @@ export async function fetchTournamentScores(sdioTournamentId: number): Promise<S
       Country: p.Country ?? "",
       WorldGolfRank: null,
       IsWithdrawn: p.IsWithdrawn ?? false,
+      Position: p.Position ?? null,
       Rounds: rounds.length > 0 ? rounds : null,
     };
   });

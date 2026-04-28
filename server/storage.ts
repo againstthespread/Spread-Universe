@@ -227,7 +227,7 @@ export interface IStorage {
   golf_addGolferToTournament(tournamentId: string, golferId: string): Promise<void>;
   golf_removeGolferFromTournament(tournamentId: string, golferId: string): Promise<void>;
 
-  golf_upsertScore(tournamentId: string, golferId: string, round: number, score: number): Promise<GolfGolferScore>;
+  golf_upsertScore(tournamentId: string, golferId: string, round: number, score: number, position?: string | null): Promise<GolfGolferScore>;
   golf_getScores(tournamentId: string): Promise<GolfGolferScore[]>;
   golf_getLastScoreUpdated(tournamentId: string): Promise<Date | null>;
 
@@ -1580,7 +1580,7 @@ export class DatabaseStorage implements IStorage {
     );
   }
 
-  async golf_upsertScore(tournamentId: string, golferId: string, round: number, score: number): Promise<GolfGolferScore> {
+  async golf_upsertScore(tournamentId: string, golferId: string, round: number, score: number, position?: string | null): Promise<GolfGolferScore> {
     const [existing] = await db.select().from(golfGolferScores).where(
       and(
         eq(golfGolferScores.tournamentId, tournamentId),
@@ -1591,12 +1591,12 @@ export class DatabaseStorage implements IStorage {
     const now = new Date();
     if (existing) {
       const [updated] = await db.update(golfGolferScores)
-        .set({ score, updatedAt: now })
+        .set({ score, position: position ?? null, updatedAt: now })
         .where(eq(golfGolferScores.id, existing.id))
         .returning();
       return updated;
     }
-    const [created] = await db.insert(golfGolferScores).values({ tournamentId, golferId, round, score, updatedAt: now }).returning();
+    const [created] = await db.insert(golfGolferScores).values({ tournamentId, golferId, round, score, position: position ?? null, updatedAt: now }).returning();
     return created;
   }
 
@@ -1844,15 +1844,18 @@ export class DatabaseStorage implements IStorage {
     for (const member of members) {
       const memberPicks = picks.filter(p => p.userId === member.userId);
       const roster = memberPicks.map(pick => {
-        const golferScores = scores
+        const golferScoreRows = scores
           .filter(s => s.golferId === pick.golferId)
-          .map(s => ({ round: s.round, score: s.score }))
           .sort((a, b) => a.round - b.round);
+        const golferScores = golferScoreRows.map(s => ({ round: s.round, score: s.score }));
         const totalScore = golferScores.reduce((sum, s) => sum + s.score, 0);
+        const latestRow = golferScoreRows[golferScoreRows.length - 1];
+        const position = latestRow?.position ?? null;
         return {
           golfer: pick.golfer,
           scores: golferScores,
           totalScore,
+          position,
         };
       });
 

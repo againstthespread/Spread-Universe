@@ -103,6 +103,39 @@ function RankDisplay({ rank }: { rank: number }) {
   return <span className="w-5 text-sm text-muted-foreground inline-block text-center">{rank}</span>;
 }
 
+function PositionBadge({ position }: { position: string | null | undefined }) {
+  if (!position) return null;
+  const upper = position.toUpperCase();
+  if (upper === "CUT" || upper === "MC") {
+    return (
+      <span
+        className="text-xs font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400"
+        data-testid="badge-position-cut"
+      >
+        CUT
+      </span>
+    );
+  }
+  if (upper === "WD" || upper === "DQ") {
+    return (
+      <span
+        className="text-xs font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
+        data-testid="badge-position-wd"
+      >
+        {upper}
+      </span>
+    );
+  }
+  return (
+    <span
+      className="text-xs font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400"
+      data-testid={`badge-position-${position}`}
+    >
+      {position}
+    </span>
+  );
+}
+
 export default function GolfLeagueDetail({ params }: { params: { id: string } }) {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -860,6 +893,7 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
                                 {pick.golfer.country && (
                                   <span className="text-xs text-muted-foreground">{pick.golfer.country}</span>
                                 )}
+                                <PositionBadge position={rosterEntry?.position} />
                               </div>
                               <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                                 {ROUNDS.map(r => {
@@ -957,6 +991,7 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
                           <div className="flex items-center gap-2">
                             <span className="text-muted-foreground text-xs w-8">#{rosterEntry.golfer.worldRank}</span>
                             <span className="text-sm">{rosterEntry.golfer.firstName} {rosterEntry.golfer.lastName}</span>
+                            <PositionBadge position={rosterEntry.position} />
                           </div>
                           <div className="flex items-center gap-2">
                             {ROUNDS.map(r => {
