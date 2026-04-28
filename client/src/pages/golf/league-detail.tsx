@@ -109,12 +109,6 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
   const [inviteUsername, setInviteUsername] = useState("");
   const [golferSearch, setGolferSearch] = useState("");
   const [localDraftOrder, setLocalDraftOrder] = useState<string[]>([]);
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
 
   const { data: league, isLoading: leagueLoading } = useQuery<GolfLeagueDetail>({
     queryKey: ["/api/golf/leagues", params.id],
@@ -291,7 +285,6 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
   }
 
   const isCommissioner = user?.id === league.commissionerId;
-  const draftTimeReached = !league.draftStartTime || now >= new Date(league.draftStartTime).getTime();
   const canStartDraft =
     isCommissioner &&
     league.draftStatus === "pending" &&

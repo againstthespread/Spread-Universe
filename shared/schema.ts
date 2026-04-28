@@ -790,7 +790,7 @@ export const insertGolfLeagueSchema = createInsertSchema(golfLeagues).omit({
   draftOrder: true,
   createdAt: true,
 }).extend({
-  maxSize: z.coerce.number().int().min(2).max(200).optional().nullable(),
+  maxSize: z.coerce.number().int().min(2).max(20).optional().nullable(),
   draftStartTime: z.string().or(z.date()).transform((val) => new Date(val)).optional().nullable(),
   draftOrderType: z.enum(["manual", "random"]).default("random"),
 });
