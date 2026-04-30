@@ -255,13 +255,15 @@ function GolferDialog({
 function GolfersSection() {
   const [search, setSearch] = useState("");
 
-  const { data: golfers = [], isLoading } = useQuery<GolfGolfer[]>({
+  const { data: golfersRaw, isLoading } = useQuery<GolfGolfer[]>({
     queryKey: ["/api/golf/golfers"],
     queryFn: async () => {
       const res = await fetch("/api/golf/golfers", { credentials: "include" });
+      if (!res.ok) throw new Error(`Failed to load golfers: ${res.status}`);
       return res.json();
     },
   });
+  const golfers: GolfGolfer[] = Array.isArray(golfersRaw) ? golfersRaw : [];
 
   const filtered = golfers.filter(g => {
     const q = search.toLowerCase();
@@ -376,23 +378,27 @@ function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) 
   const [scoreForm, setScoreForm] = useState<{ golferId: string; round: string; score: string }>({ golferId: "", round: "1", score: "" });
   const [sdioIdInput, setSdioIdInput] = useState(tournament.sdioTournamentId?.toString() ?? "");
 
-  const { data: allGolfers = [] } = useQuery<GolfGolfer[]>({
+  const { data: allGolfersRaw } = useQuery<GolfGolfer[]>({
     queryKey: ["/api/golf/golfers", { excludeTournamentId: tournament.id }],
     queryFn: async () => {
       const res = await fetch(`/api/golf/golfers?excludeTournamentId=${tournament.id}`, { credentials: "include" });
+      if (!res.ok) throw new Error(`Failed to load golfers: ${res.status}`);
       return res.json();
     },
     enabled: expanded,
   });
+  const allGolfers: GolfGolfer[] = Array.isArray(allGolfersRaw) ? allGolfersRaw : [];
 
-  const { data: scores = [], isLoading: scoresLoading } = useQuery<GolfGolferScore[]>({
+  const { data: scoresRaw, isLoading: scoresLoading } = useQuery<GolfGolferScore[]>({
     queryKey: ["/api/golf/tournaments", tournament.id, "scores"],
     queryFn: async () => {
       const res = await fetch(`/api/golf/tournaments/${tournament.id}/scores`, { credentials: "include" });
+      if (!res.ok) throw new Error(`Failed to load scores: ${res.status}`);
       return res.json();
     },
     enabled: expanded,
   });
+  const scores: GolfGolferScore[] = Array.isArray(scoresRaw) ? scoresRaw : [];
 
   const addGolferMutation = useMutation({
     mutationFn: (golferId: string) =>
@@ -767,13 +773,15 @@ function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) 
 }
 
 export default function GolfAdminContent() {
-  const { data: tournaments = [], isLoading, refetch } = useQuery<TournamentWithGolfers[]>({
+  const { data: tournamentsRaw, isLoading, refetch } = useQuery<TournamentWithGolfers[]>({
     queryKey: ["/api/golf/tournaments"],
     queryFn: async () => {
       const res = await fetch("/api/golf/tournaments", { credentials: "include" });
+      if (!res.ok) throw new Error(`Failed to load tournaments: ${res.status}`);
       return res.json();
     },
   });
+  const tournaments: TournamentWithGolfers[] = Array.isArray(tournamentsRaw) ? tournamentsRaw : [];
 
   return (
     <div className="space-y-8">
