@@ -9,10 +9,12 @@
  * Data mapping:
  *   - Field population: each player entry from Leaderboard.Players becomes
  *     a golfer record keyed by PlayerID (sdioPlayerId).
- *   - Score sync: the round-level `Score` field from SportsDataIO is a
- *     simulation/model value and should NOT be used. Instead, we sum each
- *     hole's `ToPar` value within `Rounds[].Holes` to get the actual
- *     relative-to-par score for that round.
+ *   - Score sync: For in-progress tournaments the round-level `Score` field
+ *     and hole-level `ToPar` / `Score` fields are zeroed out (model values).
+ *     The hole-level BOOLEAN flags (Birdie, Bogey, IsPar, etc.) ARE reliably
+ *     populated. We derive ToPar per hole from those flags, then sum to get
+ *     the round to-par score. For completed tournaments the numeric ToPar
+ *     field is also real and is preferred when non-zero.
  */
 
 const BASE_URL = "https://api.sportsdata.io/golf/v2/JSON";
@@ -49,6 +51,16 @@ export interface SdioScheduleEntry {
 
 interface LeaderboardHole {
   ToPar: number | null;
+  Score: number | null;
+  Par: number | null;
+  HoleInOne: boolean;
+  DoubleEagle: boolean;
+  Eagle: boolean;
+  Birdie: boolean;
+  IsPar: boolean;
+  Bogey: boolean;
+  DoubleBogey: boolean;
+  WorseThanDoubleBogey: boolean;
 }
 
 interface LeaderboardRound {
@@ -89,6 +101,32 @@ function splitName(fullName: string): { firstName: string; lastName: string } {
 }
 
 /**
+ * Derives the to-par value for a single hole.
+ *
+ * For in-progress tournaments SDIO zeroes out the numeric ToPar and Score
+ * fields but correctly populates the boolean result flags. We prefer a
+ * non-zero numeric ToPar (finalized data) and fall back to the boolean flags.
+ * Returns null when no data exists for the hole (round not yet played).
+ */
+function deriveHoleToPar(hole: LeaderboardHole): number | null {
+  // Non-zero numeric ToPar = real finalized data — use it directly
+  if (hole.ToPar !== null && hole.ToPar !== 0) return hole.ToPar;
+
+  // Derive from boolean result flags (reliable for in-progress tournaments)
+  if (hole.HoleInOne) return hole.Par != null ? 1 - hole.Par : -2;
+  if (hole.DoubleEagle) return -3;
+  if (hole.Eagle) return -2;
+  if (hole.Birdie) return -1;
+  if (hole.IsPar) return 0;
+  if (hole.Bogey) return 1;
+  if (hole.DoubleBogey) return 2;
+  if (hole.WorseThanDoubleBogey) return 3; // conservative; triple+ is very rare in pro golf
+
+  // No flag set and numeric value is 0 or null → hole not yet played
+  return null;
+}
+
+/**
  * Fetches the tournament field (list of players) from the Leaderboard endpoint.
  * Returns one SdioPlayer per entrant; Rounds will be null until scoring begins.
  */
@@ -113,9 +151,12 @@ export async function fetchTournamentField(sdioTournamentId: number): Promise<Sd
 
 /**
  * Fetches live round scores from the Leaderboard endpoint.
- * Each SdioRound.Score is the sum of hole-level ToPar values for that round,
- * which gives the actual relative-to-par score (e.g. -8 for an 8-under round).
- * The round-level Score field from the API is a simulation value and is ignored.
+ *
+ * Each SdioRound.Score is the sum of per-hole to-par values derived from
+ * the hole boolean flags (Birdie, Bogey, etc.) when numeric ToPar is zeroed
+ * out, or from the numeric ToPar directly for finalized/completed data.
+ * Rounds where no holes have been played (all flags unset, ToPar null) are
+ * included with Score: null so the caller can clean up any stale DB rows.
  */
 export async function fetchTournamentScores(sdioTournamentId: number): Promise<SdioPlayer[]> {
   const data = await sdioFetch<LeaderboardResponse>(`Leaderboard/${sdioTournamentId}`);
@@ -123,21 +164,18 @@ export async function fetchTournamentScores(sdioTournamentId: number): Promise<S
 
   return players.map(p => {
     const { firstName, lastName } = splitName(p.Name ?? "");
-    const rounds: SdioRound[] = (p.Rounds ?? [])
-      .map(r => {
-        const holes = r.Holes ?? [];
-        const nonNullHoles = holes.filter(h => h.ToPar !== null);
-        // Round hasn't started yet — all holes are null placeholders.
-        // Return Score: null so the caller can clean up any stale DB row.
-        if (nonNullHoles.length === 0) return { RoundNumber: r.Number, Score: null };
-        // All non-null holes are exactly 0 — SDIO placeholder data, not real scores.
-        // In professional golf it is effectively impossible for every hole to be
-        // exactly even par, so we treat an all-zero result as unfinalized data.
-        const hasRealData = nonNullHoles.some(h => h.ToPar !== 0);
-        if (!hasRealData) return { RoundNumber: r.Number, Score: null };
-        const score = nonNullHoles.reduce((sum, h) => sum + h.ToPar!, 0);
-        return { RoundNumber: r.Number, Score: score };
-      });
+    const rounds: SdioRound[] = (p.Rounds ?? []).map(r => {
+      const holes = r.Holes ?? [];
+      const playedHolesToPar = holes
+        .map(h => deriveHoleToPar(h))
+        .filter((v): v is number => v !== null);
+
+      // No holes have data yet (round not started or completely unscored)
+      if (playedHolesToPar.length === 0) return { RoundNumber: r.Number, Score: null };
+
+      const score = playedHolesToPar.reduce((sum, v) => sum + v, 0);
+      return { RoundNumber: r.Number, Score: score };
+    });
 
     return {
       PlayerID: p.PlayerID,
