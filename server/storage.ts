@@ -228,6 +228,7 @@ export interface IStorage {
   golf_removeGolferFromTournament(tournamentId: string, golferId: string): Promise<void>;
 
   golf_upsertScore(tournamentId: string, golferId: string, round: number, score: number, position?: string | null): Promise<GolfGolferScore>;
+  golf_deleteScore(tournamentId: string, golferId: string, round: number): Promise<void>;
   golf_getScores(tournamentId: string): Promise<GolfGolferScore[]>;
   golf_getLastScoreUpdated(tournamentId: string): Promise<Date | null>;
 
@@ -1576,6 +1577,16 @@ export class DatabaseStorage implements IStorage {
       and(
         eq(golfTournamentGolfers.tournamentId, tournamentId),
         eq(golfTournamentGolfers.golferId, golferId)
+      )
+    );
+  }
+
+  async golf_deleteScore(tournamentId: string, golferId: string, round: number): Promise<void> {
+    await db.delete(golfGolferScores).where(
+      and(
+        eq(golfGolferScores.tournamentId, tournamentId),
+        eq(golfGolferScores.golferId, golferId),
+        eq(golfGolferScores.round, round)
       )
     );
   }

@@ -465,7 +465,9 @@ function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) 
       const data = await res.json();
       queryClient.invalidateQueries({ queryKey: ["/api/golf/tournaments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/golf/tournaments", tournament.id, "scores"] });
-      toast({ title: "Scores synced!", description: `${data.scoresUpdated} score(s) updated` });
+      const parts = [`${data.scoresUpdated} score(s) updated`];
+      if (data.staleCleaned > 0) parts.push(`${data.staleCleaned} stale score(s) removed`);
+      toast({ title: "Scores synced!", description: parts.join(", ") });
     },
     onError: async (err: Error) => {
       toast({ title: "Sync failed", description: err.message, variant: "destructive" });

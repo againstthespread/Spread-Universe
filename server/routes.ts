@@ -1831,20 +1831,26 @@ export async function registerRoutes(
 
       let updated = 0;
       let skipped = 0;
+      let cleaned = 0;
 
       for (const player of players) {
         const golfer = await storage.golf_findGolferBySdioId(player.PlayerID);
         if (!golfer) { skipped++; continue; }
 
-        const rounds = player.Rounds ?? [];
-        for (const round of rounds) {
-          if (round.Score === null || round.Score === undefined) continue;
-          await storage.golf_upsertScore(req.params.id, golfer.id, round.RoundNumber, round.Score, player.Position ?? null);
-          updated++;
+        for (const round of player.Rounds ?? []) {
+          if (round.Score === null || round.Score === undefined) {
+            // Placeholder round (not started or unfinalized data) — delete
+            // any stale score that may have been written by a previous sync.
+            await storage.golf_deleteScore(req.params.id, golfer.id, round.RoundNumber);
+            cleaned++;
+          } else {
+            await storage.golf_upsertScore(req.params.id, golfer.id, round.RoundNumber, round.Score, player.Position ?? null);
+            updated++;
+          }
         }
       }
 
-      res.json({ ok: true, scoresUpdated: updated, playersSkipped: skipped });
+      res.json({ ok: true, scoresUpdated: updated, playersSkipped: skipped, staleCleaned: cleaned });
     } catch (error) {
       console.error("Golf sync-scores error:", error);
       const msg = error instanceof Error ? error.message : "Failed to sync scores";

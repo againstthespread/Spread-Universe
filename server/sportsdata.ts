@@ -126,11 +126,18 @@ export async function fetchTournamentScores(sdioTournamentId: number): Promise<S
     const rounds: SdioRound[] = (p.Rounds ?? [])
       .map(r => {
         const holes = r.Holes ?? [];
-        if (holes.length === 0) return null;
-        const score = holes.reduce((sum, h) => sum + (h.ToPar ?? 0), 0);
+        const nonNullHoles = holes.filter(h => h.ToPar !== null);
+        // Round hasn't started yet — all holes are null placeholders.
+        // Return Score: null so the caller can clean up any stale DB row.
+        if (nonNullHoles.length === 0) return { RoundNumber: r.Number, Score: null };
+        // All non-null holes are exactly 0 — SDIO placeholder data, not real scores.
+        // In professional golf it is effectively impossible for every hole to be
+        // exactly even par, so we treat an all-zero result as unfinalized data.
+        const hasRealData = nonNullHoles.some(h => h.ToPar !== 0);
+        if (!hasRealData) return { RoundNumber: r.Number, Score: null };
+        const score = nonNullHoles.reduce((sum, h) => sum + h.ToPar!, 0);
         return { RoundNumber: r.Number, Score: score };
-      })
-      .filter((r): r is SdioRound => r !== null);
+      });
 
     return {
       PlayerID: p.PlayerID,
@@ -140,7 +147,7 @@ export async function fetchTournamentScores(sdioTournamentId: number): Promise<S
       WorldGolfRank: null,
       IsWithdrawn: p.IsWithdrawn ?? false,
       Position: p.Position ?? null,
-      Rounds: rounds.length > 0 ? rounds : null,
+      Rounds: rounds,
     };
   });
 }
