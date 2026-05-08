@@ -465,6 +465,7 @@ function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) 
       const data = await res.json();
       queryClient.invalidateQueries({ queryKey: ["/api/golf/tournaments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/golf/tournaments", tournament.id, "scores"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/golf/leagues"] });
       const parts = [`${data.scoresUpdated} score(s) updated`];
       if (data.staleCleaned > 0) parts.push(`${data.staleCleaned} stale score(s) removed`);
       toast({ title: "Scores synced!", description: parts.join(", ") });
@@ -484,6 +485,7 @@ function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/golf/tournaments", tournament.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/golf/tournaments", tournament.id, "scores"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/golf/leagues"] });
       toast({ title: "Score entered" });
       setScoreForm(f => ({ ...f, score: "" }));
     },
