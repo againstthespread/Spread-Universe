@@ -109,10 +109,9 @@ function splitName(fullName: string): { firstName: string; lastName: string } {
  * Returns null when no data exists for the hole (round not yet played).
  */
 function deriveHoleToPar(hole: LeaderboardHole): number | null {
-  // Non-zero numeric ToPar = real finalized data — use it directly
-  if (hole.ToPar !== null && hole.ToPar !== 0) return hole.ToPar;
-
-  // Derive from boolean result flags (reliable for in-progress tournaments)
+  // Boolean flags are checked FIRST — they are more reliable than the numeric
+  // ToPar field, which the API sometimes populates incorrectly (e.g. Eagle holes
+  // can have ToPar=-1 when the correct value is -2).
   if (hole.HoleInOne) return hole.Par != null ? 1 - hole.Par : -2;
   if (hole.DoubleEagle) return -3;
   if (hole.Eagle) return -2;
@@ -120,9 +119,12 @@ function deriveHoleToPar(hole: LeaderboardHole): number | null {
   if (hole.IsPar) return 0;
   if (hole.Bogey) return 1;
   if (hole.DoubleBogey) return 2;
-  if (hole.WorseThanDoubleBogey) return 3; // conservative; triple+ is very rare in pro golf
+  if (hole.WorseThanDoubleBogey) return 3;
 
-  // No flag set and numeric value is 0 or null → hole not yet played
+  // No flag set — fall back to numeric ToPar for any edge-case finalized data
+  if (hole.ToPar !== null && hole.ToPar !== 0) return hole.ToPar;
+
+  // No flag and no numeric value → hole not yet played
   return null;
 }
 
