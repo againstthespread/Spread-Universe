@@ -319,6 +319,34 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/users", requireAdmin, async (req, res) => {
+    try {
+      const allUsers = await storage.getAllUsers();
+      res.json(allUsers);
+    } catch (error) {
+      console.error("Admin list users error:", error);
+      res.status(500).json({ message: "Failed to list users" });
+    }
+  });
+
+  app.post("/api/admin/users/:id/temp-password", requireAdmin, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.params.id);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+      const tempPassword = Array.from({ length: 8 }, () =>
+        chars[Math.floor(Math.random() * chars.length)]
+      ).join("");
+
+      await storage.updateUser(user.id, { password: hashPassword(tempPassword) });
+      res.json({ tempPassword });
+    } catch (error) {
+      console.error("Admin temp password error:", error);
+      res.status(500).json({ message: "Failed to generate temp password" });
+    }
+  });
+
   app.post("/api/admin/init", requireAuth, async (req, res) => {
     try {
       const user = await storage.getUser(req.session.userId!);

@@ -100,7 +100,8 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, data: Partial<Omit<User, "id">>): Promise<User | undefined>;
   setUserAdmin(userId: string, isAdmin: boolean): Promise<User | undefined>;
-  
+  getAllUsers(): Promise<Pick<User, "id" | "username" | "email">[]>;
+
   createPasswordResetCode(userId: string, code: string, expiresAt: Date): Promise<PasswordResetCode>;
   getPasswordResetCode(userId: string, code: string): Promise<PasswordResetCode | undefined>;
   markCodeAsUsed(codeId: string): Promise<void>;
@@ -290,6 +291,12 @@ export class DatabaseStorage implements IStorage {
       .where(eq(users.id, userId))
       .returning();
     return user || undefined;
+  }
+
+  async getAllUsers(): Promise<Pick<User, "id" | "username" | "email">[]> {
+    return db.select({ id: users.id, username: users.username, email: users.email })
+      .from(users)
+      .orderBy(users.username);
   }
 
   async createPasswordResetCode(userId: string, code: string, expiresAt: Date): Promise<PasswordResetCode> {

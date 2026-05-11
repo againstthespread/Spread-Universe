@@ -1,16 +1,145 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Users, Trophy, Tv, Target, Cloud, BarChart3, Flag } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
+import { Loader2, Users, Trophy, Tv, Target, Cloud, BarChart3, Flag, KeyRound, Copy, Check } from "lucide-react";
 
 import CrowdlineAdminContent from "./crowdline/admin-content";
 import MarchMadnessAdminContent from "./marchmadness/admin-content";
 import PostseasonAdminContent from "./postseason/admin-content";
 import GamblingLeagueAdminContent from "./gambling-league/admin-content";
 import GolfAdminContent from "./golf/admin-content";
+
+function UserManagementContent() {
+  const { toast } = useToast();
+  const [selectedUserId, setSelectedUserId] = useState<string>("");
+  const [tempPassword, setTempPassword] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const { data: allUsers = [], isLoading: usersLoading } = useQuery<{ id: string; username: string; email: string }[]>({
+    queryKey: ["/api/admin/users"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/users", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load users");
+      return res.json();
+    },
+  });
+
+  const tempPasswordMutation = useMutation({
+    mutationFn: (userId: string) =>
+      apiRequest("POST", `/api/admin/users/${userId}/temp-password`, {}),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      setTempPassword(data.tempPassword);
+      setCopied(false);
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to generate temp password", variant: "destructive" });
+    },
+  });
+
+  const handleGenerate = () => {
+    if (!selectedUserId) return;
+    setTempPassword(null);
+    tempPasswordMutation.mutate(selectedUserId);
+  };
+
+  const handleCopy = () => {
+    if (!tempPassword) return;
+    navigator.clipboard.writeText(tempPassword);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const selectedUser = allUsers.find(u => u.id === selectedUserId);
+
+  return (
+    <div className="space-y-6 max-w-md">
+      <div className="space-y-1">
+        <p className="text-sm text-muted-foreground">
+          Select a user and generate a temporary password to share with them. Their existing password will be replaced immediately.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium">Select User</label>
+          {usersLoading ? (
+            <div className="flex items-center gap-2 text-muted-foreground text-sm">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading users...
+            </div>
+          ) : (
+            <Select
+              value={selectedUserId}
+              onValueChange={(v) => { setSelectedUserId(v); setTempPassword(null); }}
+            >
+              <SelectTrigger data-testid="select-user-trigger">
+                <SelectValue placeholder="Choose a user..." />
+              </SelectTrigger>
+              <SelectContent>
+                {allUsers.map(u => (
+                  <SelectItem key={u.id} value={u.id} data-testid={`select-user-${u.id}`}>
+                    <span className="font-medium">{u.username}</span>
+                    <span className="text-muted-foreground ml-2 text-xs">{u.email}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+
+        <Button
+          onClick={handleGenerate}
+          disabled={!selectedUserId || tempPasswordMutation.isPending}
+          data-testid="button-generate-temp-password"
+          className="w-full"
+        >
+          {tempPasswordMutation.isPending ? (
+            <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Generating...</>
+          ) : (
+            <><KeyRound className="h-4 w-4 mr-2" /> Generate Temp Password</>
+          )}
+        </Button>
+      </div>
+
+      {tempPassword && (
+        <div className="space-y-2 p-4 rounded-lg border border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30">
+          <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">
+            Temp password for <span className="font-bold">{selectedUser?.username}</span>
+          </p>
+          <div className="flex items-center gap-2">
+            <Input
+              readOnly
+              value={tempPassword}
+              className="font-mono text-base tracking-widest bg-white dark:bg-background"
+              data-testid="input-temp-password"
+            />
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={handleCopy}
+              data-testid="button-copy-temp-password"
+            >
+              {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Share this with {selectedUser?.username}. They can log in and change it via account settings.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function AdminPanel() {
   const { user, isLoading } = useAuth();
@@ -45,7 +174,11 @@ export default function AdminPanel() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 lg:grid-cols-7 h-auto gap-1" data-testid="tabs-admin-platforms">
+        <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 lg:grid-cols-8 h-auto gap-1" data-testid="tabs-admin-platforms">
+          <TabsTrigger value="users" className="flex items-center gap-2" data-testid="tab-users">
+            <KeyRound className="h-4 w-4" />
+            <span className="hidden sm:inline">Users</span>
+          </TabsTrigger>
           <TabsTrigger value="crowdline" className="flex items-center gap-2" data-testid="tab-crowdline">
             <Users className="h-4 w-4" />
             <span className="hidden sm:inline">Crowdline</span>
@@ -75,6 +208,24 @@ export default function AdminPanel() {
             <span className="hidden sm:inline">Golf Fantasy</span>
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="users">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <KeyRound className="h-5 w-5" />
+                  User Management
+                </CardTitle>
+                <CardDescription>Generate temporary passwords for locked-out users</CardDescription>
+              </div>
+              <Badge variant="outline">Account Recovery</Badge>
+            </CardHeader>
+            <CardContent>
+              <UserManagementContent />
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="crowdline">
           <Card>
