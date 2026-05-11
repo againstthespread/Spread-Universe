@@ -31,7 +31,7 @@ import {
 import { z } from "zod";
 import session from "express-session";
 import MemoryStore from "memorystore";
-import { createHash } from "crypto";
+import { createHash, randomInt } from "crypto";
 import { fetchTournamentField, fetchTournamentScores } from "./sportsdata";
 
 declare module "express-session" {
@@ -336,7 +336,7 @@ export async function registerRoutes(
 
       const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
       const tempPassword = Array.from({ length: 8 }, () =>
-        chars[Math.floor(Math.random() * chars.length)]
+        chars[randomInt(chars.length)]
       ).join("");
 
       await storage.updateUser(user.id, { password: hashPassword(tempPassword) });
