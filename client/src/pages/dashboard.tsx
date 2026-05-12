@@ -199,7 +199,7 @@ export default function Dashboard() {
 
                 {news && news.length > 0 && (
                   <div className="divide-y divide-border">
-                    {news.map((item, i) => (
+                    {news.slice(0, 10).map((item, i) => (
                       <a
                         key={i}
                         href={item.link}
