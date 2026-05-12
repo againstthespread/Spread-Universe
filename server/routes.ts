@@ -374,11 +374,11 @@ export async function registerRoutes(
   // Sports News Proxy
   app.get("/api/news/sports", requireAuth, async (req, res) => {
     try {
-      const response = await fetch("https://www.espn.com/espn/rss/news", {
+      const response = await fetch("https://www.cbssports.com/rss/headlines/", {
         headers: { "User-Agent": "Mozilla/5.0 (compatible; AgainstTheSpread/1.0)" },
         signal: AbortSignal.timeout(8000),
       });
-      if (!response.ok) throw new Error(`ESPN RSS returned ${response.status}`);
+      if (!response.ok) throw new Error(`CBS Sports RSS returned ${response.status}`);
       const xml = await response.text();
 
       const items: { title: string; description: string; link: string; pubDate: string; source: string; imageUrl: string | null }[] = [];
@@ -401,7 +401,7 @@ export async function registerRoutes(
           description: get("description").replace(/<[^>]+>/g, "").slice(0, 200),
           link,
           pubDate: get("pubDate"),
-          source: "ESPN",
+          source: "CBS Sports",
           imageUrl,
         });
       }

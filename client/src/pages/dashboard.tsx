@@ -171,7 +171,7 @@ export default function Dashboard() {
               <CardHeader className="flex flex-row items-center gap-2 pb-3">
                 <Newspaper className="h-5 w-5 text-primary" />
                 <CardTitle>Sports News</CardTitle>
-                <Badge variant="outline" className="ml-auto text-xs">ESPN</Badge>
+                <Badge variant="outline" className="ml-auto text-xs">CBS Sports</Badge>
               </CardHeader>
               <CardContent className="p-0">
                 {newsLoading && (
