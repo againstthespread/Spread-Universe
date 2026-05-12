@@ -371,6 +371,43 @@ export async function registerRoutes(
     }
   });
 
+  // Sports News Proxy
+  app.get("/api/news/sports", requireAuth, async (req, res) => {
+    try {
+      const response = await fetch("https://www.espn.com/espn/rss/news", {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; AgainstTheSpread/1.0)" },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!response.ok) throw new Error(`ESPN RSS returned ${response.status}`);
+      const xml = await response.text();
+
+      const items: { title: string; description: string; link: string; pubDate: string; source: string }[] = [];
+      const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+      let match;
+      while ((match = itemRegex.exec(xml)) !== null && items.length < 15) {
+        const block = match[1];
+        const get = (tag: string) => {
+          const m = block.match(new RegExp(`<${tag}[^>]*>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/${tag}>`, "i"));
+          return m ? m[1].trim() : "";
+        };
+        const title = get("title");
+        const link = get("link") || block.match(/<link>(.*?)<\/link>/i)?.[1]?.trim() || "";
+        if (!title) continue;
+        items.push({
+          title,
+          description: get("description").replace(/<[^>]+>/g, "").slice(0, 200),
+          link,
+          pubDate: get("pubDate"),
+          source: "ESPN",
+        });
+      }
+      res.json(items);
+    } catch (error) {
+      console.error("Sports news fetch error:", error);
+      res.status(500).json({ message: "Failed to fetch sports news" });
+    }
+  });
+
   // CrowdLine Routes
   app.get("/api/crowdline/games", requireAuth, async (req, res) => {
     try {
