@@ -30,7 +30,7 @@ import {
 } from "@shared/schema";
 import { z } from "zod";
 import session from "express-session";
-import MemoryStore from "memorystore";
+import connectPgSimple from "connect-pg-simple";
 import { createHash, randomInt } from "crypto";
 import { fetchTournamentField, fetchTournamentScores } from "./sportsdata";
 
@@ -70,20 +70,22 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  const MemoryStoreSession = MemoryStore(session);
+  const PgSession = connectPgSimple(session);
 
   app.use(
     session({
       secret: process.env.SESSION_SECRET || "against-the-spread-secret-key",
       resave: false,
       saveUninitialized: false,
-      store: new MemoryStoreSession({
-        checkPeriod: 86400000,
+      store: new PgSession({
+        conString: process.env.DATABASE_URL,
+        tableName: "session",
+        createTableIfMissing: true,
       }),
       cookie: {
         secure: false,
         httpOnly: true,
-        maxAge: 7 * 24 * 60 * 60 * 1000,
+        maxAge: 30 * 24 * 60 * 60 * 1000,
       },
     })
   );
