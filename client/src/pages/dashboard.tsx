@@ -1,8 +1,7 @@
 import { Link, useLocation } from "wouter";
-import { Shield, Settings, Clock, Lock, ExternalLink, Newspaper, AlertCircle } from "lucide-react";
+import { Shield, ExternalLink, Newspaper, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/lib/auth-context";
@@ -69,9 +68,6 @@ export default function Dashboard() {
 
   if (!user) return null;
 
-  const getInitials = (name: string) =>
-    name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
-
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-muted/20">
       <div className="container mx-auto px-4 py-8">
@@ -79,42 +75,6 @@ export default function Dashboard() {
 
           {/* Sidebar */}
           <aside className="lg:w-72 shrink-0 space-y-4">
-
-            {/* User card */}
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex flex-col items-center text-center mb-6">
-                  <Avatar className="h-20 w-20 mb-4">
-                    <AvatarFallback className="bg-primary text-primary-foreground text-2xl">
-                      {getInitials(user.username)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <h2 className="text-xl font-bold">{user.username}</h2>
-                  <p className="text-sm text-muted-foreground">{user.email}</p>
-                  <Badge variant="secondary" className="mt-2">All Platforms</Badge>
-                </div>
-
-                <div className="space-y-1">
-                  <Link href="/account">
-                    <Button variant="ghost" className="w-full justify-start" data-testid="link-account-settings">
-                      <Settings className="mr-2 h-4 w-4" />
-                      Account Settings
-                    </Button>
-                  </Link>
-                </div>
-
-                <div className="mt-4 p-3 rounded-lg bg-muted/50">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-                    <Lock className="h-3 w-3" />
-                    <span>Session Info</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Clock className="h-3 w-3" />
-                    <span>Last active: Just now</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
 
             {/* Platforms list */}
             <Card>
