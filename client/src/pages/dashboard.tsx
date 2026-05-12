@@ -111,44 +111,6 @@ export default function Dashboard() {
                 </CardContent>
               </Card>
 
-              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="text-center">
-                      <p className="text-3xl font-bold text-primary">6</p>
-                      <p className="text-sm text-muted-foreground">Connected Platforms</p>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="text-center">
-                      <p className="text-3xl font-bold text-primary">1</p>
-                      <p className="text-sm text-muted-foreground">Account</p>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="text-center">
-                      <p className="text-3xl font-bold text-green-500">Active</p>
-                      <p className="text-sm text-muted-foreground">Session Status</p>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <Lock className="h-5 w-5 text-primary" />
-                        <p className="text-lg font-bold">Secure</p>
-                      </div>
-                      <p className="text-sm text-muted-foreground">Connection</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
               <Card>
                 <CardHeader>
                   <CardTitle>Quick Actions</CardTitle>
