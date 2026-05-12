@@ -271,7 +271,7 @@ export default function GolfDashboard() {
             </Card>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {myLeagues.map((league) => (
+              {[...myLeagues].reverse().map((league) => (
                 <Link key={league.id} href={`/golf/leagues/${league.id}`}>
                   <Card className="hover-elevate cursor-pointer h-full" data-testid={`card-my-league-${league.id}`}>
                     <CardHeader>
