@@ -71,6 +71,13 @@ export default function Dashboard() {
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-muted/20">
       <div className="container mx-auto px-4 py-8">
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold mb-1">Welcome back, {user.username}!</h1>
+          <p className="text-muted-foreground">
+            Access all your sports betting platforms from one place
+          </p>
+        </div>
+
         <div className="flex flex-col lg:flex-row gap-8">
 
           {/* Sidebar */}
@@ -120,13 +127,6 @@ export default function Dashboard() {
 
           {/* Main content */}
           <main className="flex-1 min-w-0">
-            <div className="mb-6">
-              <h1 className="text-3xl font-bold mb-1">Welcome back, {user.username}!</h1>
-              <p className="text-muted-foreground">
-                Access all your sports betting platforms from one place
-              </p>
-            </div>
-
             <Card>
               <CardHeader className="flex flex-row items-center gap-2 pb-3">
                 <Newspaper className="h-5 w-5 text-primary" />
