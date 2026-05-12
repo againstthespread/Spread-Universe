@@ -17,6 +17,7 @@ type NewsItem = {
   link: string;
   pubDate: string;
   source: string;
+  imageUrl: string | null;
 };
 
 function formatPubDate(dateStr: string) {
@@ -50,7 +51,7 @@ export default function Dashboard() {
       if (!res.ok) throw new Error("Failed to fetch news");
       return res.json();
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: 60 * 60 * 1000,
     enabled: !!user,
   });
 
@@ -208,6 +209,15 @@ export default function Dashboard() {
                         data-testid={`link-news-${i}`}
                         className="flex items-start gap-3 px-6 py-4 hover:bg-muted/40 transition-colors group"
                       >
+                        {item.imageUrl && (
+                          <img
+                            src={item.imageUrl}
+                            alt=""
+                            className="h-16 w-16 rounded-md object-cover shrink-0 bg-muted"
+                            loading="lazy"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                          />
+                        )}
                         <div className="flex-1 min-w-0">
                           <p className="font-medium text-sm leading-snug group-hover:text-primary transition-colors line-clamp-2">
                             {item.title}

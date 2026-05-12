@@ -381,7 +381,7 @@ export async function registerRoutes(
       if (!response.ok) throw new Error(`ESPN RSS returned ${response.status}`);
       const xml = await response.text();
 
-      const items: { title: string; description: string; link: string; pubDate: string; source: string }[] = [];
+      const items: { title: string; description: string; link: string; pubDate: string; source: string; imageUrl: string | null }[] = [];
       const itemRegex = /<item>([\s\S]*?)<\/item>/g;
       let match;
       while ((match = itemRegex.exec(xml)) !== null && items.length < 15) {
@@ -393,12 +393,16 @@ export async function registerRoutes(
         const title = get("title");
         const link = get("link") || block.match(/<link>(.*?)<\/link>/i)?.[1]?.trim() || "";
         if (!title) continue;
+        const mediaMatch = block.match(/<media:content[^>]+url=["']([^"']+)["']/i)
+          || block.match(/<enclosure[^>]+url=["']([^"']+)["']/i);
+        const imageUrl = mediaMatch ? mediaMatch[1] : null;
         items.push({
           title,
           description: get("description").replace(/<[^>]+>/g, "").slice(0, 200),
           link,
           pubDate: get("pubDate"),
           source: "ESPN",
+          imageUrl,
         });
       }
       res.json(items);
