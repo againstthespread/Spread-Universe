@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Users, Trophy, Tv, Target, Cloud, BarChart3, Flag, KeyRound, Copy, Check } from "lucide-react";
+import { Loader2, Users, Trophy, Tv, Target, Cloud, BarChart3, Flag, KeyRound, Copy, Check, ChevronUp, ChevronDown, GripVertical, LayoutList } from "lucide-react";
+import { platforms } from "@shared/schema";
 
 import CrowdlineAdminContent from "./crowdline/admin-content";
 import MarchMadnessAdminContent from "./marchmadness/admin-content";
@@ -141,6 +142,101 @@ function UserManagementContent() {
   );
 }
 
+function PlatformOrderContent() {
+  const { toast } = useToast();
+
+  const { data: savedOrder = [], isLoading } = useQuery<string[]>({
+    queryKey: ["/api/platforms/order"],
+    queryFn: async () => {
+      const res = await fetch("/api/platforms/order", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const defaultOrder = platforms.map(p => p.id);
+  const resolvedOrder: string[] = savedOrder.length > 0
+    ? [...savedOrder, ...defaultOrder.filter(id => !savedOrder.includes(id))]
+    : defaultOrder;
+
+  const [order, setOrder] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (resolvedOrder.length > 0 && order.length === 0) {
+      setOrder(resolvedOrder);
+    }
+  }, [resolvedOrder.join(",")]);
+
+  const saveMutation = useMutation({
+    mutationFn: () => apiRequest("PUT", "/api/platforms/order", { ids: order }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/platforms/order"] });
+      toast({ title: "Saved", description: "Platform order updated." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to save order.", variant: "destructive" });
+    },
+  });
+
+  const move = (index: number, direction: -1 | 1) => {
+    const next = [...order];
+    const swapIndex = index + direction;
+    if (swapIndex < 0 || swapIndex >= next.length) return;
+    [next[index], next[swapIndex]] = [next[swapIndex], next[index]];
+    setOrder(next);
+  };
+
+  if (isLoading || order.length === 0) {
+    return <div className="py-8 text-center text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Drag the platforms into the order you want them to appear in the sidebar for all users.
+      </p>
+      <div className="divide-y divide-border rounded-lg border">
+        {order.map((id, i) => {
+          const platform = platforms.find(p => p.id === id);
+          if (!platform) return null;
+          return (
+            <div key={id} className="flex items-center gap-3 px-4 py-3" data-testid={`row-platform-order-${id}`}>
+              <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
+              <span className="flex-1 font-medium text-sm">{platform.name}</span>
+              <div className="flex gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => move(i, -1)}
+                  disabled={i === 0}
+                  data-testid={`button-move-up-${id}`}
+                >
+                  <ChevronUp className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => move(i, 1)}
+                  disabled={i === order.length - 1}
+                  data-testid={`button-move-down-${id}`}
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} data-testid="button-save-platform-order">
+        {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+        Save Order
+      </Button>
+    </div>
+  );
+}
+
 export default function AdminPanel() {
   const { user, isLoading } = useAuth();
   const [, navigate] = useLocation();
@@ -174,7 +270,7 @@ export default function AdminPanel() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 lg:grid-cols-8 h-auto gap-1" data-testid="tabs-admin-platforms">
+        <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 lg:grid-cols-9 h-auto gap-1" data-testid="tabs-admin-platforms">
           <TabsTrigger value="users" className="flex items-center gap-2" data-testid="tab-users">
             <KeyRound className="h-4 w-4" />
             <span className="hidden sm:inline">Users</span>
@@ -206,6 +302,10 @@ export default function AdminPanel() {
           <TabsTrigger value="golf" className="flex items-center gap-2" data-testid="tab-golf">
             <Flag className="h-4 w-4" />
             <span className="hidden sm:inline">Golf Fantasy</span>
+          </TabsTrigger>
+          <TabsTrigger value="platformOrder" className="flex items-center gap-2" data-testid="tab-platform-order">
+            <LayoutList className="h-4 w-4" />
+            <span className="hidden sm:inline">Platform Order</span>
           </TabsTrigger>
         </TabsList>
 
@@ -357,6 +457,24 @@ export default function AdminPanel() {
             </CardHeader>
             <CardContent>
               <GolfAdminContent />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="platformOrder">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <LayoutList className="h-5 w-5" />
+                  Platform Order
+                </CardTitle>
+                <CardDescription>Control the order platforms appear in the sidebar for all users</CardDescription>
+              </div>
+              <Badge variant="outline">Site Settings</Badge>
+            </CardHeader>
+            <CardContent>
+              <PlatformOrderContent />
             </CardContent>
           </Card>
         </TabsContent>

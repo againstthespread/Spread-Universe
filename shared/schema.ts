@@ -3,6 +3,11 @@ import { pgTable, text, varchar, timestamp, boolean, integer, decimal, unique } 
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+});
+
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   email: text("email").notNull().unique(),

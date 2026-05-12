@@ -1,5 +1,6 @@
 // Database integration: blueprint:javascript_database
 import { 
+  appSettings,
   users, 
   passwordResetCodes, 
   crowdlineGames, 
@@ -101,6 +102,9 @@ export interface IStorage {
   updateUser(id: string, data: Partial<Omit<User, "id">>): Promise<User | undefined>;
   setUserAdmin(userId: string, isAdmin: boolean): Promise<User | undefined>;
   getAllUsers(): Promise<Pick<User, "id" | "username" | "email">[]>;
+
+  getPlatformOrder(): Promise<string[]>;
+  setPlatformOrder(ids: string[]): Promise<void>;
 
   createPasswordResetCode(userId: string, code: string, expiresAt: Date): Promise<PasswordResetCode>;
   getPasswordResetCode(userId: string, code: string): Promise<PasswordResetCode | undefined>;
@@ -297,6 +301,18 @@ export class DatabaseStorage implements IStorage {
     return db.select({ id: users.id, username: users.username, email: users.email })
       .from(users)
       .orderBy(users.username);
+  }
+
+  async getPlatformOrder(): Promise<string[]> {
+    const rows = await db.select().from(appSettings).where(sql`key = 'platform_order'`);
+    if (!rows.length) return [];
+    try { return JSON.parse(rows[0].value); } catch { return []; }
+  }
+
+  async setPlatformOrder(ids: string[]): Promise<void> {
+    await db.insert(appSettings)
+      .values({ key: "platform_order", value: JSON.stringify(ids) })
+      .onConflictDoUpdate({ target: appSettings.key, set: { value: JSON.stringify(ids) } });
   }
 
   async createPasswordResetCode(userId: string, code: string, expiresAt: Date): Promise<PasswordResetCode> {

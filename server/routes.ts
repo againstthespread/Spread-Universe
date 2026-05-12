@@ -319,6 +319,28 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/platforms/order", requireAuth, async (req, res) => {
+    try {
+      const order = await storage.getPlatformOrder();
+      res.json(order);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get platform order" });
+    }
+  });
+
+  app.put("/api/platforms/order", requireAdmin, async (req, res) => {
+    try {
+      const { ids } = req.body;
+      if (!Array.isArray(ids) || !ids.every((id: unknown) => typeof id === "string")) {
+        return res.status(400).json({ message: "ids must be an array of strings" });
+      }
+      await storage.setPlatformOrder(ids);
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to save platform order" });
+    }
+  });
+
   app.get("/api/admin/users", requireAdmin, async (req, res) => {
     try {
       const allUsers = await storage.getAllUsers();

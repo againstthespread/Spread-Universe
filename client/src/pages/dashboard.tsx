@@ -43,6 +43,28 @@ export default function Dashboard() {
     }
   }, [user, isLoading, setLocation]);
 
+  const { data: platformOrder = [] } = useQuery<string[]>({
+    queryKey: ["/api/platforms/order"],
+    queryFn: async () => {
+      const res = await fetch("/api/platforms/order", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+    enabled: !!user,
+  });
+
+  const orderedPlatforms = platformOrder.length > 0
+    ? [...platforms].sort((a, b) => {
+        const ai = platformOrder.indexOf(a.id);
+        const bi = platformOrder.indexOf(b.id);
+        if (ai === -1 && bi === -1) return 0;
+        if (ai === -1) return 1;
+        if (bi === -1) return -1;
+        return ai - bi;
+      })
+    : platforms;
+
   const { data: news, isLoading: newsLoading, isError: newsError } = useQuery<NewsItem[]>({
     queryKey: ["/api/news/sports"],
     queryFn: async () => {
@@ -92,7 +114,7 @@ export default function Dashboard() {
               </CardHeader>
               <CardContent className="px-2 pb-3">
                 <nav className="space-y-0.5">
-                  {platforms.map((platform) => (
+                  {orderedPlatforms.map((platform) => (
                     <PlatformRow
                       key={platform.id}
                       platform={platform}
