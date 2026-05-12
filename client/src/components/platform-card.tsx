@@ -50,6 +50,16 @@ export function PlatformCard({ platform, onClick, showLockIcon }: PlatformCardPr
               <img src={gamblingLeagueLogo} alt="Gambling League" className="h-8 w-8 object-contain" />
             ) : platform.id === "footballweather" ? (
               <img src={footballWeatherLogo} alt="Football Weather" className="h-8 w-8 object-contain" />
+            ) : platform.id === "golf" ? (
+              <div className="h-10 w-10 bg-white rounded-sm flex items-center justify-center">
+                <svg viewBox="0 0 40 40" className="h-9 w-9" xmlns="http://www.w3.org/2000/svg">
+                  <ellipse cx="20" cy="31" rx="14" ry="5" fill="#4ade80" />
+                  <ellipse cx="17" cy="32" rx="5" ry="2" fill="#166534" />
+                  <line x1="20" y1="10" x2="20" y2="31" stroke="#78716c" strokeWidth="1.5" strokeLinecap="round" />
+                  <polygon points="20,10 30,14 20,18" fill="#ef4444" />
+                  <circle cx="18" cy="18" r="3" fill="white" stroke="#d1d5db" strokeWidth="0.5" />
+                </svg>
+              </div>
             ) : (
               <Icon className="h-6 w-6" />
             )}
