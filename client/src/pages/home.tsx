@@ -40,8 +40,6 @@ export default function Home() {
               <span className="text-primary">Against the Spread</span>
             </h1>
             
-            <p className="text-base md:text-lg text-muted-foreground mb-6 max-w-2xl mx-auto">Access all your competitive gaming tools.</p>
-            
             {!user && (
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
                 <Link href="/register">
