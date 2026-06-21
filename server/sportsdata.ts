@@ -119,7 +119,12 @@ function deriveHoleToPar(hole: LeaderboardHole): number | null {
   if (hole.IsPar) return 0;
   if (hole.Bogey) return 1;
   if (hole.DoubleBogey) return 2;
-  if (hole.WorseThanDoubleBogey) return 3;
+  if (hole.WorseThanDoubleBogey) {
+    // The flag only tells us the score is ≥+3; use the numeric ToPar for the
+    // exact value (triple bogey = 3, quad = 4, etc.) and fall back to 3 if unavailable.
+    if (hole.ToPar !== null && hole.ToPar > 2) return hole.ToPar;
+    return 3;
+  }
 
   // No flag set — fall back to numeric ToPar for any edge-case finalized data
   if (hole.ToPar !== null && hole.ToPar !== 0) return hole.ToPar;
