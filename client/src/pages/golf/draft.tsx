@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { useAuth } from "@/lib/auth-context";
@@ -6,16 +5,6 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Flag, ArrowLeft, User, CheckCircle } from "lucide-react";
 import type { GolfDraftState, GolfGolfer } from "@shared/schema";
@@ -23,7 +12,6 @@ import type { GolfDraftState, GolfGolfer } from "@shared/schema";
 export default function GolfDraftRoom({ params }: { params: { id: string } }) {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [pendingGolfer, setPendingGolfer] = useState<GolfGolfer | null>(null);
 
   const { data: state, isLoading } = useQuery<GolfDraftState>({
     queryKey: ["/api/golf/leagues", params.id, "draft"],
@@ -155,7 +143,7 @@ export default function GolfDraftRoom({ params }: { params: { id: string } }) {
                   data-testid={`card-golfer-${golfer.id}`}
                   onClick={() => {
                     if (isMyTurn && state.league.draftStatus === "active") {
-                      setPendingGolfer(golfer);
+                      pickMutation.mutate(golfer.id);
                     }
                   }}
                 >
@@ -176,7 +164,7 @@ export default function GolfDraftRoom({ params }: { params: { id: string } }) {
                         disabled={pickMutation.isPending}
                         onClick={(e) => {
                           e.stopPropagation();
-                          setPendingGolfer(golfer);
+                          pickMutation.mutate(golfer.id);
                         }}
                         data-testid={`button-pick-${golfer.id}`}
                       >
@@ -262,32 +250,6 @@ export default function GolfDraftRoom({ params }: { params: { id: string } }) {
           )}
         </div>
       </div>
-
-      <AlertDialog open={!!pendingGolfer} onOpenChange={(open) => { if (!open) setPendingGolfer(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirm Selection</AlertDialogTitle>
-            <AlertDialogDescription>
-              Draft <span className="font-semibold text-foreground">{pendingGolfer?.firstName} {pendingGolfer?.lastName}</span>?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-confirm-cancel">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              data-testid="button-confirm-pick"
-              disabled={pickMutation.isPending}
-              onClick={() => {
-                if (pendingGolfer) {
-                  pickMutation.mutate(pendingGolfer.id);
-                  setPendingGolfer(null);
-                }
-              }}
-            >
-              Confirm Pick
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
