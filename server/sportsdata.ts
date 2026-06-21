@@ -9,12 +9,17 @@
  * Data mapping:
  *   - Field population: each player entry from Leaderboard.Players becomes
  *     a golfer record keyed by PlayerID (sdioPlayerId).
- *   - Score sync: For in-progress tournaments the round-level `Score` field
- *     and hole-level `ToPar` / `Score` fields are zeroed out (model values).
- *     The hole-level BOOLEAN flags (Birdie, Bogey, IsPar, etc.) ARE reliably
- *     populated. We derive ToPar per hole from those flags, then sum to get
- *     the round to-par score. For completed tournaments the numeric ToPar
- *     field is also real and is preferred when non-zero.
+ *   - Score sync (two-path strategy):
+ *       COMPLETED round (r.Score > 0): use r.Score - r.Par directly.
+ *         This is the authoritative stroke total and is always correct.
+ *         Hole-level Score/ToPar/flags are NOT used — they can be wrong for
+ *         match play, team events, or early-exit rounds (conceded holes get
+ *         phantom values stuffed in that don't match actual strokes).
+ *       IN-PROGRESS round (r.Score === 0 or null): r.Score is zeroed by the
+ *         API; fall back to summing per-hole to-par from the boolean flags
+ *         (Birdie, Bogey, etc.) which ARE reliably set during live play.
+ *         WorseThanDoubleBogey is conservatively capped at +3 since the
+ *         hole-level ToPar is also zeroed mid-round.
  */
 
 const BASE_URL = "https://api.sportsdata.io/golf/v2/JSON";
@@ -167,6 +172,16 @@ export async function fetchTournamentScores(sdioTournamentId: number): Promise<S
   return players.map(p => {
     const { firstName, lastName } = splitName(p.Name ?? "");
     const rounds: SdioRound[] = (p.Rounds ?? []).map(r => {
+      // For a completed round the API populates r.Score with the real stroke
+      // count (always ≥ 55 in professional golf — never 0).  Using Score - Par
+      // is the most reliable path and avoids all hole-flag edge cases entirely.
+      if (r.Score !== null && r.Score > 0) {
+        return { RoundNumber: r.Number, Score: r.Score - r.Par };
+      }
+
+      // Round is in progress — the API zeroes out r.Score and all hole-level
+      // ToPar/Score fields, but reliably populates the boolean flags.
+      // Sum per-hole to-par derived from those flags.
       const holes = r.Holes ?? [];
       const playedHolesToPar = holes
         .map(h => deriveHoleToPar(h))
