@@ -23,6 +23,16 @@ import {
   golfLeagues,
   golfLeagueMembers,
   golfDraftPicks,
+  cfbTeams,
+  cfbLeagues,
+  cfbLeagueMembers,
+  cfbDraftPicks,
+  cfbRosters,
+  cfbLineups,
+  cfbGames,
+  cfbMatchups,
+  cfbTrades,
+  cfbTransactions,
   POSTSEASON_ROUND_POINTS,
   POSTSEASON_ROUND_NAMES,
   type User, 
@@ -80,7 +90,26 @@ import {
   type GolfDraftState,
   type GolfLeagueStandingEntry,
   type GolfLeagueDetail,
+  type CfbTeam,
+  type CfbLeague,
+  type InsertCfbLeague,
+  type CfbLeagueMember,
+  type CfbDraftPick,
+  type CfbRosterRow,
+  type CfbLineupRow,
+  type CfbGame,
+  type CfbMatchup,
+  type CfbTrade,
+  type CfbDraftPickWithDetails,
+  type CfbDraftState,
+  type CfbLeagueDetail,
+  type CfbRosterEntry,
+  type CfbMatchupWithDetails,
+  type CfbStandingEntry,
+  type CfbTradeWithDetails,
 } from "@shared/schema";
+import { CFB_TEAM_SEED } from "./cfb-team-data";
+import type { EspnCfbGame } from "./espn-cfb";
 import { db } from "./db";
 import { eq, and, gt, gte, sql, desc, asc, inArray, not } from "drizzle-orm";
 
@@ -253,6 +282,46 @@ export interface IStorage {
   golf_getDraftPicks(leagueId: string): Promise<GolfDraftPickWithDetails[]>;
 
   golf_getLeagueStandings(leagueId: string): Promise<GolfLeagueStandingEntry[]>;
+
+  // CFB Conferences methods
+  cfb_seedTeamsIfEmpty(): Promise<void>;
+  cfb_getTeams(): Promise<CfbTeam[]>;
+  cfb_getTeam(id: string): Promise<CfbTeam | undefined>;
+
+  cfb_createLeague(data: InsertCfbLeague, commissionerId: string, season: number): Promise<CfbLeague>;
+  cfb_getLeague(id: string): Promise<CfbLeague | undefined>;
+  cfb_getLeagueDetail(id: string): Promise<CfbLeagueDetail | undefined>;
+  cfb_getUserLeagues(userId: string): Promise<CfbLeague[]>;
+  cfb_getAllLeagues(): Promise<CfbLeague[]>;
+  cfb_getLeagueByJoinCode(code: string): Promise<CfbLeague | undefined>;
+  cfb_updateLeague(id: string, data: Partial<Pick<CfbLeague, 'draftStatus' | 'draftOrder' | 'currentWeek'>>): Promise<CfbLeague | undefined>;
+  cfb_isLeagueMember(leagueId: string, userId: string): Promise<boolean>;
+  cfb_getLeagueMembers(leagueId: string): Promise<(CfbLeagueMember & { user: { id: string; username: string } })[]>;
+  cfb_addLeagueMember(leagueId: string, userId: string): Promise<CfbLeagueMember>;
+
+  cfb_getDraftState(leagueId: string): Promise<CfbDraftState | undefined>;
+  cfb_submitDraftPick(leagueId: string, userId: string, teamId: string): Promise<CfbDraftPick>;
+
+  cfb_getRosterRows(leagueId: string, userId?: string): Promise<CfbRosterRow[]>;
+  cfb_getRosterEntries(leagueId: string, userId: string): Promise<CfbRosterEntry[]>;
+  cfb_getFreeAgents(leagueId: string): Promise<CfbTeam[]>;
+  cfb_claimFreeAgent(leagueId: string, userId: string, addTeamId: string, dropTeamId: string): Promise<void>;
+
+  cfb_getLineup(leagueId: string, userId: string, week: number): Promise<CfbLineupRow[]>;
+  cfb_setLineup(leagueId: string, userId: string, week: number, teamIds: string[]): Promise<void>;
+
+  cfb_upsertGames(games: EspnCfbGame[]): Promise<number>;
+  cfb_getGamesByWeek(season: number, week: number): Promise<CfbGame[]>;
+
+  cfb_getMatchups(leagueId: string, week?: number): Promise<CfbMatchup[]>;
+  cfb_getMatchupsWithDetails(leagueId: string, week: number): Promise<CfbMatchupWithDetails[]>;
+  cfb_finalizeWeek(leagueId: string, week: number): Promise<void>;
+
+  cfb_getTrades(leagueId: string): Promise<CfbTradeWithDetails[]>;
+  cfb_createTrade(leagueId: string, proposerId: string, receiverId: string, proposerTeamIds: string[], receiverTeamIds: string[]): Promise<CfbTrade>;
+  cfb_respondTrade(leagueId: string, tradeId: string, userId: string, action: 'accept' | 'reject' | 'cancel'): Promise<CfbTrade>;
+
+  cfb_getStandings(leagueId: string): Promise<CfbStandingEntry[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1914,6 +1983,786 @@ export class DatabaseStorage implements IStorage {
     });
 
     return standings;
+  }
+
+  // ============ CFB Conferences ============
+
+  static readonly CFB_ROSTER_SIZE = 7;
+  static readonly CFB_LINEUP_SIZE = 5;
+  static readonly CFB_REGULAR_SEASON_WEEKS = 11;
+  static readonly CFB_PLAYOFF_TEAMS = 6;
+
+  async cfb_seedTeamsIfEmpty(): Promise<void> {
+    const [existing] = await db.select().from(cfbTeams).limit(1);
+    if (existing) return;
+    await db.insert(cfbTeams).values(
+      CFB_TEAM_SEED.map(t => ({
+        espnTeamId: t.espnTeamId,
+        name: t.name,
+        displayName: t.displayName,
+        abbreviation: t.abbreviation,
+        logoUrl: t.logoUrl,
+      }))
+    );
+    console.log(`[cfb] Seeded ${CFB_TEAM_SEED.length} CFB teams`);
+  }
+
+  async cfb_getTeams(): Promise<CfbTeam[]> {
+    return await db.select().from(cfbTeams).orderBy(asc(cfbTeams.name));
+  }
+
+  async cfb_getTeam(id: string): Promise<CfbTeam | undefined> {
+    const [t] = await db.select().from(cfbTeams).where(eq(cfbTeams.id, id));
+    return t || undefined;
+  }
+
+  async cfb_createLeague(data: InsertCfbLeague, commissionerId: string, season: number): Promise<CfbLeague> {
+    let joinCode = this.generateJoinCode();
+    let attempts = 0;
+    while (attempts < 10) {
+      const existing = await this.cfb_getLeagueByJoinCode(joinCode);
+      if (!existing) break;
+      joinCode = this.generateJoinCode();
+      attempts++;
+    }
+
+    const [league] = await db.insert(cfbLeagues).values({
+      ...data,
+      commissionerId,
+      joinCode,
+      season,
+      draftStatus: "pending",
+      draftOrder: [],
+    }).returning();
+
+    await db.insert(cfbLeagueMembers).values({ leagueId: league.id, userId: commissionerId });
+
+    if (data.draftOrderType === "random") {
+      await db.update(cfbLeagues)
+        .set({ draftOrder: [commissionerId] })
+        .where(eq(cfbLeagues.id, league.id));
+      const [updated] = await db.select().from(cfbLeagues).where(eq(cfbLeagues.id, league.id));
+      return updated;
+    }
+
+    return league;
+  }
+
+  async cfb_getLeague(id: string): Promise<CfbLeague | undefined> {
+    const [l] = await db.select().from(cfbLeagues).where(eq(cfbLeagues.id, id));
+    return l || undefined;
+  }
+
+  async cfb_getLeagueDetail(id: string): Promise<CfbLeagueDetail | undefined> {
+    const league = await this.cfb_getLeague(id);
+    if (!league) return undefined;
+    const members = await this.cfb_getLeagueMembers(id);
+    return { ...league, members };
+  }
+
+  async cfb_getUserLeagues(userId: string): Promise<CfbLeague[]> {
+    const memberships = await db.select().from(cfbLeagueMembers).where(eq(cfbLeagueMembers.userId, userId));
+    const result: CfbLeague[] = [];
+    for (const m of memberships) {
+      const league = await this.cfb_getLeague(m.leagueId);
+      if (league) result.push(league);
+    }
+    return result;
+  }
+
+  async cfb_getAllLeagues(): Promise<CfbLeague[]> {
+    return await db.select().from(cfbLeagues).orderBy(desc(cfbLeagues.createdAt));
+  }
+
+  async cfb_getLeagueByJoinCode(code: string): Promise<CfbLeague | undefined> {
+    const [l] = await db.select().from(cfbLeagues).where(eq(cfbLeagues.joinCode, code.toUpperCase()));
+    return l || undefined;
+  }
+
+  async cfb_updateLeague(id: string, data: Partial<Pick<CfbLeague, 'draftStatus' | 'draftOrder' | 'currentWeek'>>): Promise<CfbLeague | undefined> {
+    const [l] = await db.update(cfbLeagues).set(data).where(eq(cfbLeagues.id, id)).returning();
+    return l || undefined;
+  }
+
+  async cfb_isLeagueMember(leagueId: string, userId: string): Promise<boolean> {
+    const [m] = await db.select().from(cfbLeagueMembers).where(
+      and(eq(cfbLeagueMembers.leagueId, leagueId), eq(cfbLeagueMembers.userId, userId))
+    );
+    return !!m;
+  }
+
+  async cfb_getLeagueMembers(leagueId: string): Promise<(CfbLeagueMember & { user: { id: string; username: string } })[]> {
+    const members = await db.select().from(cfbLeagueMembers).where(eq(cfbLeagueMembers.leagueId, leagueId));
+    const result: (CfbLeagueMember & { user: { id: string; username: string } })[] = [];
+    for (const m of members) {
+      const user = await this.getUser(m.userId);
+      if (user) result.push({ ...m, user: { id: user.id, username: user.username } });
+    }
+    return result;
+  }
+
+  async cfb_addLeagueMember(leagueId: string, userId: string): Promise<CfbLeagueMember> {
+    const [m] = await db.insert(cfbLeagueMembers).values({ leagueId, userId }).returning();
+
+    const league = await this.cfb_getLeague(leagueId);
+    if (league && league.draftOrderType === "random") {
+      const currentOrder = league.draftOrder ?? [];
+      if (!currentOrder.includes(userId)) {
+        const shuffled = [...currentOrder, userId];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        await this.cfb_updateLeague(leagueId, { draftOrder: shuffled });
+      }
+    }
+
+    return m;
+  }
+
+  private async cfb_getDraftPicksWithDetails(leagueId: string): Promise<CfbDraftPickWithDetails[]> {
+    const picks = await db.select().from(cfbDraftPicks)
+      .where(eq(cfbDraftPicks.leagueId, leagueId))
+      .orderBy(asc(cfbDraftPicks.pickNumber));
+    const teams = await this.cfb_getTeams();
+    const teamMap = new Map(teams.map(t => [t.id, t]));
+    const result: CfbDraftPickWithDetails[] = [];
+    for (const pick of picks) {
+      const team = teamMap.get(pick.teamId);
+      const user = await this.getUser(pick.userId);
+      if (team && user) {
+        result.push({ ...pick, team, user: { id: user.id, username: user.username } });
+      }
+    }
+    return result;
+  }
+
+  async cfb_getDraftState(leagueId: string): Promise<CfbDraftState | undefined> {
+    const league = await this.cfb_getLeague(leagueId);
+    if (!league) return undefined;
+
+    const members = await this.cfb_getLeagueMembers(leagueId);
+    const draftOrder = league.draftOrder ?? [];
+    const draftOrderWithNames = draftOrder.map(uid => {
+      const m = members.find(m => m.userId === uid);
+      return { userId: uid, username: m?.user.username ?? uid };
+    });
+
+    const picks = await this.cfb_getDraftPicksWithDetails(leagueId);
+    const numUsers = draftOrder.length;
+    const totalPicks = numUsers * DatabaseStorage.CFB_ROSTER_SIZE;
+    const currentPickNumber = picks.length;
+    const isComplete = (numUsers > 0 && currentPickNumber >= totalPicks) || league.draftStatus === "completed";
+
+    let currentPickUserId: string | null = null;
+    if (!isComplete && draftOrder.length > 0 && league.draftStatus === "active") {
+      currentPickUserId = this.snakePickUser(draftOrder, currentPickNumber);
+    }
+
+    const draftedTeamIds = new Set(picks.map(p => p.teamId));
+    const allTeams = await this.cfb_getTeams();
+    const availableTeams = allTeams.filter(t => !draftedTeamIds.has(t.id));
+
+    return {
+      league,
+      picks,
+      currentPickUserId,
+      currentPickNumber,
+      availableTeams,
+      isComplete,
+      draftOrder: draftOrderWithNames,
+    };
+  }
+
+  async cfb_submitDraftPick(leagueId: string, userId: string, teamId: string): Promise<CfbDraftPick> {
+    const league = await this.cfb_getLeague(leagueId);
+    if (!league) throw new Error("League not found");
+    if (league.draftStatus !== "active") throw new Error("Draft is not active");
+
+    const draftOrder = league.draftOrder ?? [];
+    const picks = await db.select().from(cfbDraftPicks).where(eq(cfbDraftPicks.leagueId, leagueId));
+    const pickNumber = picks.length;
+    const expectedUser = this.snakePickUser(draftOrder, pickNumber);
+
+    if (expectedUser !== userId) throw new Error("Not your turn");
+
+    const alreadyDrafted = picks.find(p => p.teamId === teamId);
+    if (alreadyDrafted) throw new Error("Team already drafted");
+
+    const [pick] = await db.insert(cfbDraftPicks).values({
+      leagueId,
+      userId,
+      teamId,
+      pickNumber,
+    }).returning();
+
+    await db.insert(cfbRosters).values({ leagueId, userId, teamId, acquiredVia: "draft" });
+
+    const totalPicks = draftOrder.length * DatabaseStorage.CFB_ROSTER_SIZE;
+    if (picks.length + 1 >= totalPicks) {
+      await this.cfb_updateLeague(leagueId, { draftStatus: "completed" });
+      await this.cfb_generateSchedule(leagueId);
+    }
+
+    return pick;
+  }
+
+  /**
+   * Generates a round-robin schedule for regular season weeks 1-11 using the
+   * circle method. With N members there are N-1 unique rounds; rounds repeat
+   * cyclically until week 11. Odd member counts give one member a bye each
+   * week (no matchup row is created for byes).
+   */
+  private async cfb_generateSchedule(leagueId: string): Promise<void> {
+    const members = await this.cfb_getLeagueMembers(leagueId);
+    const ids = members.map(m => m.userId);
+    if (ids.length < 2) return;
+
+    const existing = await db.select().from(cfbMatchups).where(eq(cfbMatchups.leagueId, leagueId));
+    if (existing.length > 0) return;
+
+    const slots = [...ids];
+    if (slots.length % 2 === 1) slots.push("__BYE__");
+    const n = slots.length;
+    const roundsCount = n - 1;
+
+    const rounds: [string, string][][] = [];
+    const rotating = slots.slice(1);
+    for (let r = 0; r < roundsCount; r++) {
+      const pairs: [string, string][] = [];
+      const lineup = [slots[0], ...rotating];
+      for (let i = 0; i < n / 2; i++) {
+        const a = lineup[i];
+        const b = lineup[n - 1 - i];
+        if (a !== "__BYE__" && b !== "__BYE__") pairs.push([a, b]);
+      }
+      rounds.push(pairs);
+      rotating.unshift(rotating.pop()!);
+    }
+
+    const values: { leagueId: string; week: number; user1Id: string; user2Id: string }[] = [];
+    for (let week = 1; week <= DatabaseStorage.CFB_REGULAR_SEASON_WEEKS; week++) {
+      const round = rounds[(week - 1) % roundsCount];
+      for (const [a, b] of round) {
+        values.push({ leagueId, week, user1Id: a, user2Id: b });
+      }
+    }
+    if (values.length > 0) await db.insert(cfbMatchups).values(values);
+  }
+
+  async cfb_getRosterRows(leagueId: string, userId?: string): Promise<CfbRosterRow[]> {
+    if (userId) {
+      return await db.select().from(cfbRosters).where(
+        and(eq(cfbRosters.leagueId, leagueId), eq(cfbRosters.userId, userId))
+      );
+    }
+    return await db.select().from(cfbRosters).where(eq(cfbRosters.leagueId, leagueId));
+  }
+
+  async cfb_getRosterEntries(leagueId: string, userId: string): Promise<CfbRosterEntry[]> {
+    const league = await this.cfb_getLeague(leagueId);
+    if (!league) return [];
+
+    const rows = await this.cfb_getRosterRows(leagueId, userId);
+    const teams = await this.cfb_getTeams();
+    const teamMap = new Map(teams.map(t => [t.id, t]));
+    const seasonGames = await db.select().from(cfbGames).where(eq(cfbGames.season, league.season));
+
+    const entries: CfbRosterEntry[] = [];
+    for (const row of rows) {
+      const team = teamMap.get(row.teamId);
+      if (!team) continue;
+
+      let wins = 0, losses = 0;
+      for (const g of seasonGames) {
+        if (g.status !== "final" || g.homeScore === null || g.awayScore === null) continue;
+        if (g.homeEspnTeamId === team.espnTeamId) {
+          g.homeScore > g.awayScore ? wins++ : g.homeScore < g.awayScore ? losses++ : null;
+        } else if (g.awayEspnTeamId === team.espnTeamId) {
+          g.awayScore > g.homeScore ? wins++ : g.awayScore < g.homeScore ? losses++ : null;
+        }
+      }
+
+      const thisWeekGame = seasonGames.find(g =>
+        g.week === league.currentWeek &&
+        (g.homeEspnTeamId === team.espnTeamId || g.awayEspnTeamId === team.espnTeamId)
+      ) ?? null;
+
+      entries.push({ team, acquiredVia: row.acquiredVia, record: { wins, losses }, thisWeekGame });
+    }
+
+    entries.sort((a, b) => a.team.name.localeCompare(b.team.name));
+    return entries;
+  }
+
+  async cfb_getFreeAgents(leagueId: string): Promise<CfbTeam[]> {
+    const rostered = await this.cfb_getRosterRows(leagueId);
+    const rosteredIds = new Set(rostered.map(r => r.teamId));
+    const teams = await this.cfb_getTeams();
+    return teams.filter(t => !rosteredIds.has(t.id));
+  }
+
+  async cfb_claimFreeAgent(leagueId: string, userId: string, addTeamId: string, dropTeamId: string): Promise<void> {
+    const league = await this.cfb_getLeague(leagueId);
+    if (!league) throw new Error("League not found");
+    if (league.draftStatus !== "completed") throw new Error("Free agency opens after the draft");
+
+    const myRoster = await this.cfb_getRosterRows(leagueId, userId);
+    if (!myRoster.some(r => r.teamId === dropTeamId)) throw new Error("You don't own the team you're dropping");
+
+    const allRostered = await this.cfb_getRosterRows(leagueId);
+    if (allRostered.some(r => r.teamId === addTeamId)) throw new Error("That team is already on a roster");
+
+    const addTeam = await this.cfb_getTeam(addTeamId);
+    if (!addTeam) throw new Error("Team not found");
+
+    await db.transaction(async (tx) => {
+      await tx.delete(cfbRosters).where(
+        and(eq(cfbRosters.leagueId, leagueId), eq(cfbRosters.userId, userId), eq(cfbRosters.teamId, dropTeamId))
+      );
+      await tx.insert(cfbRosters).values({ leagueId, userId, teamId: addTeamId, acquiredVia: "free_agency" });
+
+      await tx.delete(cfbLineups).where(
+        and(
+          eq(cfbLineups.leagueId, leagueId),
+          eq(cfbLineups.userId, userId),
+          eq(cfbLineups.teamId, dropTeamId),
+          gte(cfbLineups.week, league.currentWeek)
+        )
+      );
+
+      await tx.insert(cfbTransactions).values({
+        leagueId, userId, addTeamId, dropTeamId, week: league.currentWeek,
+      });
+    });
+  }
+
+  async cfb_getLineup(leagueId: string, userId: string, week: number): Promise<CfbLineupRow[]> {
+    return await db.select().from(cfbLineups).where(
+      and(eq(cfbLineups.leagueId, leagueId), eq(cfbLineups.userId, userId), eq(cfbLineups.week, week))
+    );
+  }
+
+  async cfb_setLineup(leagueId: string, userId: string, week: number, teamIds: string[]): Promise<void> {
+    const league = await this.cfb_getLeague(leagueId);
+    if (!league) throw new Error("League not found");
+    if (week < league.currentWeek) throw new Error("That week is already finalized");
+
+    const matchups = await db.select().from(cfbMatchups).where(
+      and(eq(cfbMatchups.leagueId, leagueId), eq(cfbMatchups.week, week))
+    );
+    const myMatchup = matchups.find(m => m.user1Id === userId || m.user2Id === userId);
+    if (myMatchup?.isComplete) throw new Error("Your matchup for that week is already scored");
+
+    const weekGames = await this.cfb_getGamesByWeek(league.season, week);
+    if (weekGames.some(g => g.status !== "scheduled")) {
+      throw new Error("Lineups are locked for this week — games have already started");
+    }
+
+    const myRoster = await this.cfb_getRosterRows(leagueId, userId);
+    const myTeamIds = new Set(myRoster.map(r => r.teamId));
+    for (const tid of teamIds) {
+      if (!myTeamIds.has(tid)) throw new Error("You can only start teams on your roster");
+    }
+    if (new Set(teamIds).size !== teamIds.length) throw new Error("Duplicate teams in lineup");
+
+    await db.delete(cfbLineups).where(
+      and(eq(cfbLineups.leagueId, leagueId), eq(cfbLineups.userId, userId), eq(cfbLineups.week, week))
+    );
+    await db.insert(cfbLineups).values(
+      teamIds.map(teamId => ({ leagueId, userId, week, teamId }))
+    );
+  }
+
+  async cfb_upsertGames(games: EspnCfbGame[]): Promise<number> {
+    let count = 0;
+    for (const g of games) {
+      await db.insert(cfbGames).values({
+        espnGameId: g.espnGameId,
+        season: g.season,
+        week: g.week,
+        homeEspnTeamId: g.homeEspnTeamId,
+        awayEspnTeamId: g.awayEspnTeamId,
+        homeTeamName: g.homeTeamName,
+        awayTeamName: g.awayTeamName,
+        homeScore: g.homeScore,
+        awayScore: g.awayScore,
+        status: g.status,
+        gameDate: g.gameDate,
+      }).onConflictDoUpdate({
+        target: cfbGames.espnGameId,
+        set: {
+          homeScore: g.homeScore,
+          awayScore: g.awayScore,
+          status: g.status,
+          gameDate: g.gameDate,
+        },
+      });
+      count++;
+    }
+    return count;
+  }
+
+  async cfb_getGamesByWeek(season: number, week: number): Promise<CfbGame[]> {
+    return await db.select().from(cfbGames).where(
+      and(eq(cfbGames.season, season), eq(cfbGames.week, week))
+    ).orderBy(asc(cfbGames.gameDate));
+  }
+
+  async cfb_getMatchups(leagueId: string, week?: number): Promise<CfbMatchup[]> {
+    if (week !== undefined) {
+      return await db.select().from(cfbMatchups).where(
+        and(eq(cfbMatchups.leagueId, leagueId), eq(cfbMatchups.week, week))
+      );
+    }
+    return await db.select().from(cfbMatchups).where(eq(cfbMatchups.leagueId, leagueId)).orderBy(asc(cfbMatchups.week));
+  }
+
+  /**
+   * Determines whether a lineup team won its game in the given week.
+   * Returns null when the result is unknown (no game or not final).
+   */
+  private cfb_teamWon(team: CfbTeam, weekGames: CfbGame[]): { game: CfbGame | null; won: boolean | null } {
+    const game = weekGames.find(g =>
+      g.homeEspnTeamId === team.espnTeamId || g.awayEspnTeamId === team.espnTeamId
+    ) ?? null;
+    if (!game || game.status !== "final" || game.homeScore === null || game.awayScore === null) {
+      return { game, won: null };
+    }
+    const isHome = game.homeEspnTeamId === team.espnTeamId;
+    const won = isHome ? game.homeScore > game.awayScore : game.awayScore > game.homeScore;
+    return { game, won };
+  }
+
+  async cfb_getMatchupsWithDetails(leagueId: string, week: number): Promise<CfbMatchupWithDetails[]> {
+    const league = await this.cfb_getLeague(leagueId);
+    if (!league) return [];
+
+    const matchups = await this.cfb_getMatchups(leagueId, week);
+    const weekGames = await this.cfb_getGamesByWeek(league.season, week);
+    const teams = await this.cfb_getTeams();
+    const teamMap = new Map(teams.map(t => [t.id, t]));
+
+    const buildLineup = async (userId: string) => {
+      const lineupRows = await this.cfb_getLineup(leagueId, userId, week);
+      return lineupRows.map(row => {
+        const team = teamMap.get(row.teamId)!;
+        const { game, won } = this.cfb_teamWon(team, weekGames);
+        return { team, game, won };
+      }).filter(e => e.team);
+    };
+
+    const result: CfbMatchupWithDetails[] = [];
+    for (const m of matchups) {
+      const user1 = await this.getUser(m.user1Id);
+      const user2 = m.user2Id ? await this.getUser(m.user2Id) : null;
+      if (!user1) continue;
+      result.push({
+        ...m,
+        user1: { id: user1.id, username: user1.username },
+        user2: user2 ? { id: user2.id, username: user2.username } : null,
+        user1Lineup: await buildLineup(m.user1Id),
+        user2Lineup: m.user2Id ? await buildLineup(m.user2Id) : [],
+      });
+    }
+    return result;
+  }
+
+  /**
+   * Scores all matchups for the given week, advances the league week, and
+   * generates playoff matchups when entering weeks 12-14.
+   * Playoff ties are broken in favor of the higher seed.
+   */
+  async cfb_finalizeWeek(leagueId: string, week: number): Promise<void> {
+    const league = await this.cfb_getLeague(leagueId);
+    if (!league) throw new Error("League not found");
+    if (week !== league.currentWeek) throw new Error(`Current week is ${league.currentWeek}, not ${week}`);
+
+    const matchups = await this.cfb_getMatchups(leagueId, week);
+    const weekGames = await this.cfb_getGamesByWeek(league.season, week);
+    const teams = await this.cfb_getTeams();
+    const teamMap = new Map(teams.map(t => [t.id, t]));
+
+    const seeds = league.currentWeek > DatabaseStorage.CFB_REGULAR_SEASON_WEEKS
+      ? await this.cfb_getPlayoffSeeds(leagueId)
+      : null;
+
+    const countWins = async (userId: string): Promise<number> => {
+      const lineupRows = await this.cfb_getLineup(leagueId, userId, week);
+      let wins = 0;
+      for (const row of lineupRows) {
+        const team = teamMap.get(row.teamId);
+        if (!team) continue;
+        const { won } = this.cfb_teamWon(team, weekGames);
+        if (won === true) wins++;
+      }
+      return wins;
+    };
+
+    for (const m of matchups) {
+      if (m.isComplete) continue;
+      const user1Wins = await countWins(m.user1Id);
+      const user2Wins = m.user2Id ? await countWins(m.user2Id) : 0;
+
+      let winnerId: string | null = null;
+      if (!m.user2Id) {
+        winnerId = m.user1Id;
+      } else if (user1Wins > user2Wins) {
+        winnerId = m.user1Id;
+      } else if (user2Wins > user1Wins) {
+        winnerId = m.user2Id;
+      } else if (m.isPlayoff && seeds) {
+        const seed1 = seeds.indexOf(m.user1Id);
+        const seed2 = seeds.indexOf(m.user2Id);
+        winnerId = seed1 <= seed2 ? m.user1Id : m.user2Id;
+      }
+
+      await db.update(cfbMatchups).set({
+        user1Wins,
+        user2Wins,
+        winnerId,
+        isComplete: true,
+      }).where(eq(cfbMatchups.id, m.id));
+    }
+
+    const nextWeek = week + 1;
+    await this.cfb_updateLeague(leagueId, { currentWeek: nextWeek });
+
+    if (nextWeek === 12) await this.cfb_generateQuarterfinals(leagueId);
+    else if (nextWeek === 13) await this.cfb_generateSemifinals(leagueId);
+    else if (nextWeek === 14) await this.cfb_generateChampionship(leagueId);
+  }
+
+  /** Playoff seeds: standings order after the regular season (weeks 1-11). */
+  private async cfb_getPlayoffSeeds(leagueId: string): Promise<string[]> {
+    const standings = await this.cfb_getStandings(leagueId);
+    return standings.map(s => s.userId);
+  }
+
+  private async cfb_generateQuarterfinals(leagueId: string): Promise<void> {
+    const seeds = await this.cfb_getPlayoffSeeds(leagueId);
+    if (seeds.length < DatabaseStorage.CFB_PLAYOFF_TEAMS) return;
+
+    const existing = await this.cfb_getMatchups(leagueId, 12);
+    if (existing.length > 0) return;
+
+    await db.insert(cfbMatchups).values([
+      { leagueId, week: 12, user1Id: seeds[2], user2Id: seeds[5], isPlayoff: true, playoffRound: "quarterfinal" },
+      { leagueId, week: 12, user1Id: seeds[3], user2Id: seeds[4], isPlayoff: true, playoffRound: "quarterfinal" },
+    ]);
+  }
+
+  private async cfb_generateSemifinals(leagueId: string): Promise<void> {
+    const seeds = await this.cfb_getPlayoffSeeds(leagueId);
+    const existing = await this.cfb_getMatchups(leagueId, 13);
+    if (existing.length > 0) return;
+
+    if (seeds.length >= DatabaseStorage.CFB_PLAYOFF_TEAMS) {
+      // 6+ members: top 2 seeds get byes, face quarterfinal winners
+      const qf = (await this.cfb_getMatchups(leagueId, 12)).filter(m => m.isPlayoff && m.isComplete);
+      if (qf.length < 2) return;
+
+      const winners = qf.map(m => m.winnerId).filter((id): id is string => !!id);
+      winners.sort((a, b) => seeds.indexOf(a) - seeds.indexOf(b));
+
+      await db.insert(cfbMatchups).values([
+        { leagueId, week: 13, user1Id: seeds[0], user2Id: winners[1] ?? null, isPlayoff: true, playoffRound: "semifinal" },
+        { leagueId, week: 13, user1Id: seeds[1], user2Id: winners[0] ?? null, isPlayoff: true, playoffRound: "semifinal" },
+      ]);
+    } else if (seeds.length >= 4) {
+      // 4-5 members: no quarterfinals, straight to semis (1v4, 2v3)
+      await db.insert(cfbMatchups).values([
+        { leagueId, week: 13, user1Id: seeds[0], user2Id: seeds[3], isPlayoff: true, playoffRound: "semifinal" },
+        { leagueId, week: 13, user1Id: seeds[1], user2Id: seeds[2], isPlayoff: true, playoffRound: "semifinal" },
+      ]);
+    }
+    // 2-3 members: no semifinals; top 2 seeds go straight to the championship
+  }
+
+  private async cfb_generateChampionship(leagueId: string): Promise<void> {
+    const existing = await this.cfb_getMatchups(leagueId, 14);
+    if (existing.length > 0) return;
+
+    const seeds = await this.cfb_getPlayoffSeeds(leagueId);
+
+    if (seeds.length >= 4) {
+      const sf = (await this.cfb_getMatchups(leagueId, 13)).filter(m => m.isPlayoff && m.isComplete);
+      if (sf.length < 2) return;
+
+      const winners = sf.map(m => m.winnerId).filter((id): id is string => !!id);
+      if (winners.length < 2) return;
+
+      await db.insert(cfbMatchups).values([
+        { leagueId, week: 14, user1Id: winners[0], user2Id: winners[1], isPlayoff: true, playoffRound: "championship" },
+      ]);
+    } else if (seeds.length >= 2) {
+      // 2-3 members: top 2 seeds play the championship directly
+      await db.insert(cfbMatchups).values([
+        { leagueId, week: 14, user1Id: seeds[0], user2Id: seeds[1], isPlayoff: true, playoffRound: "championship" },
+      ]);
+    }
+  }
+
+  async cfb_getTrades(leagueId: string): Promise<CfbTradeWithDetails[]> {
+    const trades = await db.select().from(cfbTrades)
+      .where(eq(cfbTrades.leagueId, leagueId))
+      .orderBy(desc(cfbTrades.createdAt));
+    const teams = await this.cfb_getTeams();
+    const teamMap = new Map(teams.map(t => [t.id, t]));
+
+    const result: CfbTradeWithDetails[] = [];
+    for (const t of trades) {
+      const proposer = await this.getUser(t.proposerId);
+      const receiver = await this.getUser(t.receiverId);
+      if (!proposer || !receiver) continue;
+      result.push({
+        ...t,
+        proposer: { id: proposer.id, username: proposer.username },
+        receiver: { id: receiver.id, username: receiver.username },
+        proposerTeams: t.proposerTeamIds.map(id => teamMap.get(id)).filter((x): x is CfbTeam => !!x),
+        receiverTeams: t.receiverTeamIds.map(id => teamMap.get(id)).filter((x): x is CfbTeam => !!x),
+      });
+    }
+    return result;
+  }
+
+  async cfb_createTrade(leagueId: string, proposerId: string, receiverId: string, proposerTeamIds: string[], receiverTeamIds: string[]): Promise<CfbTrade> {
+    const league = await this.cfb_getLeague(leagueId);
+    if (!league) throw new Error("League not found");
+    if (league.draftStatus !== "completed") throw new Error("Trades open after the draft");
+    if (proposerId === receiverId) throw new Error("You can't trade with yourself");
+
+    const isReceiverMember = await this.cfb_isLeagueMember(leagueId, receiverId);
+    if (!isReceiverMember) throw new Error("That user is not in this league");
+
+    const proposerRoster = await this.cfb_getRosterRows(leagueId, proposerId);
+    const receiverRoster = await this.cfb_getRosterRows(leagueId, receiverId);
+    const proposerOwned = new Set(proposerRoster.map(r => r.teamId));
+    const receiverOwned = new Set(receiverRoster.map(r => r.teamId));
+
+    for (const tid of proposerTeamIds) {
+      if (!proposerOwned.has(tid)) throw new Error("You can only offer teams on your roster");
+    }
+    for (const tid of receiverTeamIds) {
+      if (!receiverOwned.has(tid)) throw new Error("You can only request teams on their roster");
+    }
+
+    const [trade] = await db.insert(cfbTrades).values({
+      leagueId,
+      proposerId,
+      receiverId,
+      proposerTeamIds,
+      receiverTeamIds,
+      status: "pending",
+    }).returning();
+    return trade;
+  }
+
+  async cfb_respondTrade(leagueId: string, tradeId: string, userId: string, action: 'accept' | 'reject' | 'cancel'): Promise<CfbTrade> {
+    const [trade] = await db.select().from(cfbTrades).where(
+      and(eq(cfbTrades.id, tradeId), eq(cfbTrades.leagueId, leagueId))
+    );
+    if (!trade) throw new Error("Trade not found");
+    if (trade.status !== "pending") throw new Error("Trade is no longer pending");
+
+    if (action === "cancel") {
+      if (trade.proposerId !== userId) throw new Error("Only the proposer can cancel");
+      const [updated] = await db.update(cfbTrades).set({ status: "cancelled", resolvedAt: new Date() })
+        .where(eq(cfbTrades.id, tradeId)).returning();
+      return updated;
+    }
+
+    if (trade.receiverId !== userId) throw new Error("Only the receiver can respond to this trade");
+
+    if (action === "reject") {
+      const [updated] = await db.update(cfbTrades).set({ status: "rejected", resolvedAt: new Date() })
+        .where(eq(cfbTrades.id, tradeId)).returning();
+      return updated;
+    }
+
+    // Accept: re-verify ownership, then swap rosters
+    const league = await this.cfb_getLeague(leagueId);
+    if (!league) throw new Error("League not found");
+
+    const proposerRoster = await this.cfb_getRosterRows(leagueId, trade.proposerId);
+    const receiverRoster = await this.cfb_getRosterRows(leagueId, trade.receiverId);
+    const proposerOwned = new Set(proposerRoster.map(r => r.teamId));
+    const receiverOwned = new Set(receiverRoster.map(r => r.teamId));
+
+    for (const tid of trade.proposerTeamIds) {
+      if (!proposerOwned.has(tid)) throw new Error("Trade invalid: proposer no longer owns all offered teams");
+    }
+    for (const tid of trade.receiverTeamIds) {
+      if (!receiverOwned.has(tid)) throw new Error("Trade invalid: you no longer own all requested teams");
+    }
+
+    return await db.transaction(async (tx) => {
+      for (const tid of trade.proposerTeamIds) {
+        await tx.update(cfbRosters).set({ userId: trade.receiverId, acquiredVia: "trade" })
+          .where(and(eq(cfbRosters.leagueId, leagueId), eq(cfbRosters.teamId, tid)));
+      }
+      for (const tid of trade.receiverTeamIds) {
+        await tx.update(cfbRosters).set({ userId: trade.proposerId, acquiredVia: "trade" })
+          .where(and(eq(cfbRosters.leagueId, leagueId), eq(cfbRosters.teamId, tid)));
+      }
+
+      const movedTeamIds = [...trade.proposerTeamIds, ...trade.receiverTeamIds];
+      if (movedTeamIds.length > 0) {
+        await tx.delete(cfbLineups).where(
+          and(
+            eq(cfbLineups.leagueId, leagueId),
+            inArray(cfbLineups.teamId, movedTeamIds),
+            gte(cfbLineups.week, league.currentWeek)
+          )
+        );
+      }
+
+      const [updated] = await tx.update(cfbTrades).set({ status: "accepted", resolvedAt: new Date() })
+        .where(eq(cfbTrades.id, tradeId)).returning();
+      return updated;
+    });
+  }
+
+  /** Standings sorted with the same logic as Gambling League: wins, then total team wins. */
+  async cfb_getStandings(leagueId: string): Promise<CfbStandingEntry[]> {
+    const members = await this.cfb_getLeagueMembers(leagueId);
+    const allMatchups = await this.cfb_getMatchups(leagueId);
+    const regularSeason = allMatchups.filter(m => !m.isPlayoff);
+
+    const standings: CfbStandingEntry[] = [];
+    for (const member of members) {
+      const uid = member.userId;
+      let wins = 0, losses = 0, draws = 0, totalTeamWins = 0;
+
+      for (const m of regularSeason) {
+        if (!m.isComplete) continue;
+        if (m.user1Id === uid) {
+          if (m.winnerId === uid) wins++;
+          else if (m.winnerId && m.winnerId !== uid) losses++;
+          else draws++;
+          totalTeamWins += m.user1Wins ?? 0;
+        } else if (m.user2Id === uid) {
+          if (m.winnerId === uid) wins++;
+          else if (m.winnerId && m.winnerId !== uid) losses++;
+          else draws++;
+          totalTeamWins += m.user2Wins ?? 0;
+        }
+      }
+
+      standings.push({
+        userId: uid,
+        username: member.user.username,
+        wins,
+        losses,
+        draws,
+        totalTeamWins,
+      });
+    }
+
+    return standings.sort((a, b) => {
+      if (b.wins !== a.wins) return b.wins - a.wins;
+      return b.totalTeamWins - a.totalTeamWins;
+    });
   }
 }
 

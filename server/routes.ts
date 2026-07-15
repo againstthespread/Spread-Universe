@@ -25,6 +25,10 @@ import {
   insertGolfTournamentSchema,
   insertGolfLeagueSchema,
   insertGolfScoreSchema,
+  insertCfbLeagueSchema,
+  cfbLineupSchema,
+  cfbClaimSchema,
+  cfbTradeProposalSchema,
   type FantasyStreamGame,
   type FantasyStreamPlay,
 } from "@shared/schema";
@@ -33,6 +37,7 @@ import session from "express-session";
 import MemoryStore from "memorystore";
 import { createHash, randomInt } from "crypto";
 import { fetchTournamentField, fetchTournamentScores } from "./sportsdata";
+import { fetchCfbGamesByWeek } from "./espn-cfb";
 
 declare module "express-session" {
   interface SessionData {
@@ -542,6 +547,9 @@ export async function registerRoutes(
   // MarchMadness Routes
   // Initialize rounds on first access
   await storage.mm_initializeRounds();
+
+  // CFB Conferences - seed teams on startup
+  await storage.cfb_seedTeamsIfEmpty();
 
   // Golf Fantasy - seed golfers on startup, then merge any existing duplicates
   await storage.golf_seedGolfersIfEmpty();
@@ -2206,6 +2214,448 @@ export async function registerRoutes(
       res.json(allLeagues);
     } catch (error) {
       res.status(500).json({ message: "Failed to get leagues" });
+    }
+  });
+
+  // ============ CFB Conferences Routes ============
+
+  // CFB season: Aug-Dec belongs to the current year, Jan-Jun to the previous year
+  const getCfbSeason = () => {
+    const now = new Date();
+    return now.getMonth() >= 5 ? now.getFullYear() : now.getFullYear() - 1;
+  };
+
+  app.get("/api/cfb/teams", requireAuth, async (req, res) => {
+    try {
+      const teams = await storage.cfb_getTeams();
+      res.json(teams);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get teams" });
+    }
+  });
+
+  app.get("/api/cfb/games", requireAuth, async (req, res) => {
+    try {
+      const week = parseInt(String(req.query.week ?? "1"), 10);
+      const season = req.query.season ? parseInt(String(req.query.season), 10) : getCfbSeason();
+      const games = await storage.cfb_getGamesByWeek(season, week);
+      res.json(games);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get games" });
+    }
+  });
+
+  app.post("/api/cfb/leagues/join", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { joinCode } = req.body;
+      if (!joinCode) return res.status(400).json({ message: "joinCode required" });
+      const league = await storage.cfb_getLeagueByJoinCode(joinCode);
+      if (!league) return res.status(404).json({ message: "League not found" });
+
+      const isMember = await storage.cfb_isLeagueMember(league.id, userId);
+      if (isMember) return res.status(400).json({ message: "Already a member" });
+
+      const members = await storage.cfb_getLeagueMembers(league.id);
+      if (members.length >= league.maxSize) return res.status(400).json({ message: "League is full" });
+
+      if (league.draftStatus !== "pending") return res.status(400).json({ message: "Draft has already started" });
+
+      await storage.cfb_addLeagueMember(league.id, userId);
+      res.json({ leagueId: league.id });
+    } catch (error) {
+      console.error("CFB join league error:", error);
+      res.status(500).json({ message: "Failed to join league" });
+    }
+  });
+
+  app.get("/api/cfb/leagues", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const leagues = await storage.cfb_getUserLeagues(userId);
+      res.json(leagues);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get leagues" });
+    }
+  });
+
+  app.post("/api/cfb/leagues", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const result = insertCfbLeagueSchema.safeParse(req.body);
+      if (!result.success) return res.status(400).json({ message: "Invalid data", errors: result.error.flatten() });
+      const league = await storage.cfb_createLeague(result.data, userId, getCfbSeason());
+      res.status(201).json(league);
+    } catch (error) {
+      console.error("CFB create league error:", error);
+      res.status(500).json({ message: "Failed to create league" });
+    }
+  });
+
+  app.get("/api/cfb/leagues/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const detail = await storage.cfb_getLeagueDetail(req.params.id);
+      if (!detail) return res.status(404).json({ message: "League not found" });
+
+      const isMember = await storage.cfb_isLeagueMember(req.params.id, userId);
+      if (!isMember) return res.status(403).json({ message: "Not a member of this league" });
+
+      res.json(detail);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get league" });
+    }
+  });
+
+  app.post("/api/cfb/leagues/:id/invite", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const league = await storage.cfb_getLeague(req.params.id);
+      if (!league) return res.status(404).json({ message: "League not found" });
+      if (league.commissionerId !== userId) return res.status(403).json({ message: "Only commissioner can invite" });
+
+      const { username } = req.body;
+      if (!username) return res.status(400).json({ message: "username required" });
+
+      const invitedUser = await storage.getUserByUsername(username);
+      if (!invitedUser) return res.status(404).json({ message: "User not found" });
+
+      const isMember = await storage.cfb_isLeagueMember(req.params.id, invitedUser.id);
+      if (isMember) return res.status(400).json({ message: "User already in league" });
+
+      const members = await storage.cfb_getLeagueMembers(req.params.id);
+      if (members.length >= league.maxSize) return res.status(400).json({ message: "League is full" });
+
+      if (league.draftStatus !== "pending") return res.status(400).json({ message: "Draft has already started" });
+
+      await storage.cfb_addLeagueMember(req.params.id, invitedUser.id);
+      res.json({ ok: true, username: invitedUser.username });
+    } catch (error) {
+      console.error("CFB invite error:", error);
+      res.status(500).json({ message: "Failed to invite user" });
+    }
+  });
+
+  app.patch("/api/cfb/leagues/:id/draft-order", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const league = await storage.cfb_getLeague(req.params.id);
+      if (!league) return res.status(404).json({ message: "League not found" });
+      if (league.commissionerId !== userId) return res.status(403).json({ message: "Only commissioner can set draft order" });
+
+      const { draftOrder } = req.body;
+      if (!Array.isArray(draftOrder)) return res.status(400).json({ message: "draftOrder must be an array" });
+
+      const members = await storage.cfb_getLeagueMembers(req.params.id);
+      const memberIds = new Set(members.map(m => m.userId));
+      if (draftOrder.length !== memberIds.size) {
+        return res.status(400).json({ message: "Draft order must include exactly all league members" });
+      }
+      if (new Set(draftOrder).size !== draftOrder.length) {
+        return res.status(400).json({ message: "Draft order contains duplicate entries" });
+      }
+      if (draftOrder.some((id: string) => !memberIds.has(id))) {
+        return res.status(400).json({ message: "Draft order contains non-member user IDs" });
+      }
+
+      await storage.cfb_updateLeague(req.params.id, { draftOrder });
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update draft order" });
+    }
+  });
+
+  app.post("/api/cfb/leagues/:id/start-draft", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const league = await storage.cfb_getLeague(req.params.id);
+      if (!league) return res.status(404).json({ message: "League not found" });
+      if (league.commissionerId !== userId) return res.status(403).json({ message: "Only commissioner can start draft" });
+      if (league.draftStatus !== "pending") return res.status(400).json({ message: "Draft already started" });
+
+      const members = await storage.cfb_getLeagueMembers(req.params.id);
+      if (members.length < 2) return res.status(400).json({ message: "Need at least 2 members to start draft" });
+
+      const draftOrder = league.draftOrder ?? [];
+      if (draftOrder.length !== members.length) {
+        const memberIds = members.map(m => m.userId);
+        const shuffled = memberIds.sort(() => Math.random() - 0.5);
+        await storage.cfb_updateLeague(req.params.id, { draftOrder: shuffled, draftStatus: "active" });
+      } else {
+        await storage.cfb_updateLeague(req.params.id, { draftStatus: "active" });
+      }
+
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to start draft" });
+    }
+  });
+
+  app.get("/api/cfb/leagues/:id/draft", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const isMember = await storage.cfb_isLeagueMember(req.params.id, userId);
+      if (!isMember) return res.status(403).json({ message: "Not a member of this league" });
+
+      const state = await storage.cfb_getDraftState(req.params.id);
+      if (!state) return res.status(404).json({ message: "League not found" });
+      res.json(state);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get draft state" });
+    }
+  });
+
+  app.post("/api/cfb/leagues/:id/draft/pick", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { teamId } = req.body;
+      if (!teamId) return res.status(400).json({ message: "teamId required" });
+
+      const isMember = await storage.cfb_isLeagueMember(req.params.id, userId);
+      if (!isMember) return res.status(403).json({ message: "Not a member of this league" });
+
+      const pick = await storage.cfb_submitDraftPick(req.params.id, userId, teamId);
+      res.status(201).json(pick);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Failed to submit pick";
+      const knownClientErrors = ["Not your turn", "Draft is not active", "Team already drafted"];
+      const status = knownClientErrors.includes(msg) ? 400 : 500;
+      res.status(status).json({ message: msg });
+    }
+  });
+
+  app.get("/api/cfb/leagues/:id/roster", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const isMember = await storage.cfb_isLeagueMember(req.params.id, userId);
+      if (!isMember) return res.status(403).json({ message: "Not a member of this league" });
+
+      const targetUserId = String(req.query.userId ?? userId);
+      const entries = await storage.cfb_getRosterEntries(req.params.id, targetUserId);
+      res.json(entries);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get roster" });
+    }
+  });
+
+  app.get("/api/cfb/leagues/:id/lineup", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const isMember = await storage.cfb_isLeagueMember(req.params.id, userId);
+      if (!isMember) return res.status(403).json({ message: "Not a member of this league" });
+
+      const league = await storage.cfb_getLeague(req.params.id);
+      if (!league) return res.status(404).json({ message: "League not found" });
+      const week = req.query.week ? parseInt(String(req.query.week), 10) : league.currentWeek;
+
+      const rows = await storage.cfb_getLineup(req.params.id, userId, week);
+      res.json(rows);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get lineup" });
+    }
+  });
+
+  app.post("/api/cfb/leagues/:id/lineup", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const isMember = await storage.cfb_isLeagueMember(req.params.id, userId);
+      if (!isMember) return res.status(403).json({ message: "Not a member of this league" });
+
+      const result = cfbLineupSchema.safeParse(req.body);
+      if (!result.success) return res.status(400).json({ message: "Invalid data", errors: result.error.flatten() });
+
+      await storage.cfb_setLineup(req.params.id, userId, result.data.week, result.data.teamIds);
+      res.json({ ok: true });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Failed to set lineup";
+      const knownClientErrors = [
+        "That week is already finalized",
+        "Your matchup for that week is already scored",
+        "You can only start teams on your roster",
+        "Duplicate teams in lineup",
+      ];
+      const status = knownClientErrors.includes(msg) ? 400 : 500;
+      res.status(status).json({ message: msg });
+    }
+  });
+
+  app.get("/api/cfb/leagues/:id/free-agents", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const isMember = await storage.cfb_isLeagueMember(req.params.id, userId);
+      if (!isMember) return res.status(403).json({ message: "Not a member of this league" });
+
+      const teams = await storage.cfb_getFreeAgents(req.params.id);
+      res.json(teams);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get free agents" });
+    }
+  });
+
+  app.post("/api/cfb/leagues/:id/free-agents/claim", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const isMember = await storage.cfb_isLeagueMember(req.params.id, userId);
+      if (!isMember) return res.status(403).json({ message: "Not a member of this league" });
+
+      const result = cfbClaimSchema.safeParse(req.body);
+      if (!result.success) return res.status(400).json({ message: "Invalid data", errors: result.error.flatten() });
+
+      await storage.cfb_claimFreeAgent(req.params.id, userId, result.data.addTeamId, result.data.dropTeamId);
+      res.json({ ok: true });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Failed to claim free agent";
+      const knownClientErrors = [
+        "Free agency opens after the draft",
+        "You don't own the team you're dropping",
+        "That team is already on a roster",
+        "Team not found",
+      ];
+      const status = knownClientErrors.includes(msg) ? 400 : 500;
+      res.status(status).json({ message: msg });
+    }
+  });
+
+  app.get("/api/cfb/leagues/:id/matchups", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const isMember = await storage.cfb_isLeagueMember(req.params.id, userId);
+      if (!isMember) return res.status(403).json({ message: "Not a member of this league" });
+
+      const league = await storage.cfb_getLeague(req.params.id);
+      if (!league) return res.status(404).json({ message: "League not found" });
+      const week = req.query.week ? parseInt(String(req.query.week), 10) : league.currentWeek;
+
+      const matchups = await storage.cfb_getMatchupsWithDetails(req.params.id, week);
+      res.json(matchups);
+    } catch (error) {
+      console.error("CFB matchups error:", error);
+      res.status(500).json({ message: "Failed to get matchups" });
+    }
+  });
+
+  app.get("/api/cfb/leagues/:id/standings", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const isMember = await storage.cfb_isLeagueMember(req.params.id, userId);
+      if (!isMember) return res.status(403).json({ message: "Not a member of this league" });
+
+      const standings = await storage.cfb_getStandings(req.params.id);
+      res.json(standings);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get standings" });
+    }
+  });
+
+  app.get("/api/cfb/leagues/:id/trades", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const isMember = await storage.cfb_isLeagueMember(req.params.id, userId);
+      if (!isMember) return res.status(403).json({ message: "Not a member of this league" });
+
+      const trades = await storage.cfb_getTrades(req.params.id);
+      res.json(trades);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get trades" });
+    }
+  });
+
+  app.post("/api/cfb/leagues/:id/trades", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const isMember = await storage.cfb_isLeagueMember(req.params.id, userId);
+      if (!isMember) return res.status(403).json({ message: "Not a member of this league" });
+
+      const result = cfbTradeProposalSchema.safeParse(req.body);
+      if (!result.success) return res.status(400).json({ message: "Invalid data", errors: result.error.flatten() });
+
+      const trade = await storage.cfb_createTrade(
+        req.params.id,
+        userId,
+        result.data.receiverId,
+        result.data.proposerTeamIds,
+        result.data.receiverTeamIds,
+      );
+      res.status(201).json(trade);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Failed to propose trade";
+      const knownClientErrors = [
+        "Trades open after the draft",
+        "You can't trade with yourself",
+        "That user is not in this league",
+        "You can only offer teams on your roster",
+        "You can only request teams on their roster",
+      ];
+      const status = knownClientErrors.includes(msg) ? 400 : 500;
+      res.status(status).json({ message: msg });
+    }
+  });
+
+  app.post("/api/cfb/leagues/:id/trades/:tradeId/respond", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const isMember = await storage.cfb_isLeagueMember(req.params.id, userId);
+      if (!isMember) return res.status(403).json({ message: "Not a member of this league" });
+
+      const { action } = req.body;
+      if (!["accept", "reject", "cancel"].includes(action)) {
+        return res.status(400).json({ message: "action must be accept, reject, or cancel" });
+      }
+
+      const trade = await storage.cfb_respondTrade(req.params.id, req.params.tradeId, userId, action);
+      res.json(trade);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Failed to respond to trade";
+      const knownClientErrors = [
+        "Trade not found",
+        "Trade is no longer pending",
+        "Only the proposer can cancel",
+        "Only the receiver can respond to this trade",
+        "Trade invalid: proposer no longer owns all offered teams",
+        "Trade invalid: you no longer own all requested teams",
+      ];
+      const status = knownClientErrors.includes(msg) ? 400 : 500;
+      res.status(status).json({ message: msg });
+    }
+  });
+
+  // CFB Admin routes
+  app.get("/api/cfb/admin/leagues", requireAdmin, async (req, res) => {
+    try {
+      const leagues = await storage.cfb_getAllLeagues();
+      res.json(leagues);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get leagues" });
+    }
+  });
+
+  app.post("/api/cfb/admin/sync-games", requireAdmin, async (req, res) => {
+    try {
+      const week = parseInt(String(req.body.week ?? ""), 10);
+      if (isNaN(week) || week < 1 || week > 16) return res.status(400).json({ message: "week must be 1-16" });
+      const season = req.body.season ? parseInt(String(req.body.season), 10) : getCfbSeason();
+
+      const games = await fetchCfbGamesByWeek(season, week);
+      const count = await storage.cfb_upsertGames(games);
+      res.json({ ok: true, season, week, gamesSynced: count });
+    } catch (error) {
+      console.error("CFB sync games error:", error);
+      res.status(500).json({ message: error instanceof Error ? error.message : "Failed to sync games" });
+    }
+  });
+
+  app.post("/api/cfb/admin/leagues/:id/finalize-week", requireAdmin, async (req, res) => {
+    try {
+      const week = parseInt(String(req.body.week ?? ""), 10);
+      if (isNaN(week)) return res.status(400).json({ message: "week required" });
+
+      await storage.cfb_finalizeWeek(req.params.id, week);
+      const league = await storage.cfb_getLeague(req.params.id);
+      res.json({ ok: true, currentWeek: league?.currentWeek });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Failed to finalize week";
+      const status = msg.startsWith("Current week is") || msg === "League not found" ? 400 : 500;
+      res.status(status).json({ message: msg });
     }
   });
 

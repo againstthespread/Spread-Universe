@@ -861,6 +861,220 @@ export type GolfLeagueDetail = GolfLeague & {
   members: (GolfLeagueMember & { user: { id: string; username: string } })[];
 };
 
+// ============ CFB Conferences ============
+
+export const cfbTeams = pgTable("cfb_teams", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  espnTeamId: integer("espn_team_id").notNull().unique(),
+  name: text("name").notNull(),
+  displayName: text("display_name").notNull(),
+  abbreviation: text("abbreviation").notNull(),
+  logoUrl: text("logo_url"),
+});
+
+export const cfbLeagues = pgTable("cfb_leagues", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  commissionerId: varchar("commissioner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  joinCode: varchar("join_code", { length: 8 }).notNull().unique(),
+  maxSize: integer("max_size").notNull().default(8),
+  season: integer("season").notNull(),
+  currentWeek: integer("current_week").notNull().default(1),
+  draftStatus: text("draft_status").notNull().default("pending"),
+  draftOrderType: text("draft_order_type").notNull().default("random"),
+  draftOrder: text("draft_order").array(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const cfbLeagueMembers = pgTable("cfb_league_members", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leagueId: varchar("league_id").notNull().references(() => cfbLeagues.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  joinedAt: timestamp("joined_at").defaultNow(),
+}, (table) => ({
+  cfbLeagueUserUnique: unique("cfb_league_user_unique").on(table.leagueId, table.userId),
+}));
+
+export const cfbDraftPicks = pgTable("cfb_draft_picks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leagueId: varchar("league_id").notNull().references(() => cfbLeagues.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  teamId: varchar("team_id").notNull().references(() => cfbTeams.id, { onDelete: "cascade" }),
+  pickNumber: integer("pick_number").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  cfbPickNumberUnique: unique("cfb_draft_pick_number_unique").on(table.leagueId, table.pickNumber),
+  cfbLeagueTeamPickUnique: unique("cfb_draft_league_team_unique").on(table.leagueId, table.teamId),
+}));
+
+export const cfbRosters = pgTable("cfb_rosters", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leagueId: varchar("league_id").notNull().references(() => cfbLeagues.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  teamId: varchar("team_id").notNull().references(() => cfbTeams.id, { onDelete: "cascade" }),
+  acquiredVia: text("acquired_via").notNull().default("draft"),
+}, (table) => ({
+  cfbRosterTeamUnique: unique("cfb_roster_league_team_unique").on(table.leagueId, table.teamId),
+}));
+
+export const cfbLineups = pgTable("cfb_lineups", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leagueId: varchar("league_id").notNull().references(() => cfbLeagues.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  week: integer("week").notNull(),
+  teamId: varchar("team_id").notNull().references(() => cfbTeams.id, { onDelete: "cascade" }),
+}, (table) => ({
+  cfbLineupUnique: unique("cfb_lineup_unique").on(table.leagueId, table.userId, table.week, table.teamId),
+}));
+
+export const cfbGames = pgTable("cfb_games", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  espnGameId: varchar("espn_game_id", { length: 20 }).notNull().unique(),
+  season: integer("season").notNull(),
+  week: integer("week").notNull(),
+  homeEspnTeamId: integer("home_espn_team_id").notNull(),
+  awayEspnTeamId: integer("away_espn_team_id").notNull(),
+  homeTeamName: text("home_team_name").notNull(),
+  awayTeamName: text("away_team_name").notNull(),
+  homeScore: integer("home_score"),
+  awayScore: integer("away_score"),
+  status: text("status").notNull().default("scheduled"),
+  gameDate: timestamp("game_date"),
+});
+
+export const cfbMatchups = pgTable("cfb_matchups", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leagueId: varchar("league_id").notNull().references(() => cfbLeagues.id, { onDelete: "cascade" }),
+  week: integer("week").notNull(),
+  user1Id: varchar("user1_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  user2Id: varchar("user2_id").references(() => users.id, { onDelete: "cascade" }),
+  user1Wins: integer("user1_wins"),
+  user2Wins: integer("user2_wins"),
+  winnerId: varchar("winner_id").references(() => users.id, { onDelete: "set null" }),
+  isComplete: boolean("is_complete").default(false).notNull(),
+  isPlayoff: boolean("is_playoff").default(false).notNull(),
+  playoffRound: text("playoff_round"),
+});
+
+export const cfbTrades = pgTable("cfb_trades", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leagueId: varchar("league_id").notNull().references(() => cfbLeagues.id, { onDelete: "cascade" }),
+  proposerId: varchar("proposer_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  receiverId: varchar("receiver_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  proposerTeamIds: text("proposer_team_ids").array().notNull(),
+  receiverTeamIds: text("receiver_team_ids").array().notNull(),
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at").defaultNow(),
+  resolvedAt: timestamp("resolved_at"),
+});
+
+export const cfbTransactions = pgTable("cfb_transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leagueId: varchar("league_id").notNull().references(() => cfbLeagues.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  addTeamId: varchar("add_team_id").notNull().references(() => cfbTeams.id, { onDelete: "cascade" }),
+  dropTeamId: varchar("drop_team_id").notNull().references(() => cfbTeams.id, { onDelete: "cascade" }),
+  week: integer("week").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// CFB Insert Schemas
+export const insertCfbLeagueSchema = createInsertSchema(cfbLeagues).omit({
+  id: true,
+  commissionerId: true,
+  joinCode: true,
+  season: true,
+  currentWeek: true,
+  draftStatus: true,
+  draftOrder: true,
+  createdAt: true,
+}).extend({
+  name: z.string().min(2, "League name must be at least 2 characters").max(60),
+  maxSize: z.coerce.number().int().min(2).max(8).default(8),
+  draftOrderType: z.enum(["manual", "random"]).default("random"),
+});
+
+export const cfbLineupSchema = z.object({
+  week: z.coerce.number().int().min(1).max(14),
+  teamIds: z.array(z.string()).length(5, "You must start exactly 5 teams"),
+});
+
+export const cfbClaimSchema = z.object({
+  addTeamId: z.string(),
+  dropTeamId: z.string(),
+});
+
+export const cfbTradeProposalSchema = z.object({
+  receiverId: z.string(),
+  proposerTeamIds: z.array(z.string()).min(1).max(3),
+  receiverTeamIds: z.array(z.string()).min(1).max(3),
+}).refine(d => d.proposerTeamIds.length === d.receiverTeamIds.length, {
+  message: "Trades must swap an equal number of teams",
+});
+
+// CFB Types
+export type CfbTeam = typeof cfbTeams.$inferSelect;
+export type CfbLeague = typeof cfbLeagues.$inferSelect;
+export type InsertCfbLeague = z.infer<typeof insertCfbLeagueSchema>;
+export type CfbLeagueMember = typeof cfbLeagueMembers.$inferSelect;
+export type CfbDraftPick = typeof cfbDraftPicks.$inferSelect;
+export type CfbRosterRow = typeof cfbRosters.$inferSelect;
+export type CfbLineupRow = typeof cfbLineups.$inferSelect;
+export type CfbGame = typeof cfbGames.$inferSelect;
+export type CfbMatchup = typeof cfbMatchups.$inferSelect;
+export type CfbTrade = typeof cfbTrades.$inferSelect;
+export type CfbTransaction = typeof cfbTransactions.$inferSelect;
+
+// CFB Composite Types
+export type CfbDraftPickWithDetails = CfbDraftPick & {
+  team: CfbTeam;
+  user: { id: string; username: string };
+};
+
+export type CfbDraftState = {
+  league: CfbLeague;
+  picks: CfbDraftPickWithDetails[];
+  currentPickUserId: string | null;
+  currentPickNumber: number;
+  availableTeams: CfbTeam[];
+  isComplete: boolean;
+  draftOrder: { userId: string; username: string }[];
+};
+
+export type CfbLeagueDetail = CfbLeague & {
+  members: (CfbLeagueMember & { user: { id: string; username: string } })[];
+};
+
+export type CfbRosterEntry = {
+  team: CfbTeam;
+  acquiredVia: string;
+  record: { wins: number; losses: number };
+  thisWeekGame: CfbGame | null;
+};
+
+export type CfbMatchupWithDetails = CfbMatchup & {
+  user1: { id: string; username: string };
+  user2: { id: string; username: string } | null;
+  user1Lineup: { team: CfbTeam; game: CfbGame | null; won: boolean | null }[];
+  user2Lineup: { team: CfbTeam; game: CfbGame | null; won: boolean | null }[];
+};
+
+export type CfbStandingEntry = {
+  userId: string;
+  username: string;
+  wins: number;
+  losses: number;
+  draws: number;
+  totalTeamWins: number;
+};
+
+export type CfbTradeWithDetails = CfbTrade & {
+  proposer: { id: string; username: string };
+  receiver: { id: string; username: string };
+  proposerTeams: CfbTeam[];
+  receiverTeams: CfbTeam[];
+};
+
 export const platforms: Platform[] = [
   {
     id: "crowdline",
@@ -917,5 +1131,13 @@ export const platforms: Platform[] = [
     icon: "Flag",
     color: "from-emerald-500 to-emerald-600",
     url: "/golf",
+  },
+  {
+    id: "cfb",
+    name: "CFB Conferences",
+    description: "Draft college football teams and battle weekly",
+    icon: "Shield",
+    color: "from-red-500 to-red-600",
+    url: "/cfb",
   },
 ];

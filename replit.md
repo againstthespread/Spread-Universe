@@ -2,7 +2,7 @@
 
 ## Overview
 
-Against The Spread is a unified sports betting platform that provides a single authentication hub for accessing multiple sports betting and fantasy sports sub-platforms. The application serves as a central account management system where users can register, login, and manage their profiles while accessing seven different platforms: CrowdLine, March Madness ATS, FantasyStream, Gambling League, Postseason ATS, Football Weather, and Golf Fantasy.
+Against The Spread is a unified sports betting platform that provides a single authentication hub for accessing multiple sports betting and fantasy sports sub-platforms. The application serves as a central account management system where users can register, login, and manage their profiles while accessing eight different platforms: CrowdLine, March Madness ATS, FantasyStream, Gambling League, Postseason ATS, Football Weather, Golf Fantasy, and CFB Conferences.
 
 The project follows a full-stack TypeScript architecture with React on the frontend and Express on the backend, using PostgreSQL for data persistence.
 
@@ -80,6 +80,18 @@ The `shared/` directory contains:
 - `golf_league_members` - League memberships
 - `golf_draft_picks` - Snake draft selections (pick number + golfer + user)
 
+**CFB Conferences Tables (fantasy college football leagues):**
+- `cfb_teams` - 136 FBS teams seeded on startup from ESPN (name, abbreviation, logo)
+- `cfb_leagues` - User-created leagues (2-8 members, snake draft, weeks 1-14)
+- `cfb_league_members` - League memberships
+- `cfb_draft_picks` - Snake draft selections (7 teams per member)
+- `cfb_rosters` - Current team ownership (acquiredVia: draft/free_agency/trade)
+- `cfb_lineups` - Weekly 5-team starting lineups
+- `cfb_games` - Real CFB games synced from ESPN per season/week
+- `cfb_matchups` - H2H weekly matchups (incl. playoffs weeks 12-14, byes)
+- `cfb_trades` - Trade proposals (equal team counts 1-3, pending/accepted/rejected/cancelled)
+- `cfb_transactions` - Free agency add/drop log
+
 ### API Structure
 
 **Authentication (`/api/auth/`):**
@@ -132,6 +144,29 @@ The `shared/` directory contains:
 - `GET /api/golf/leagues/:id/draft` - Draft state (4s poll when active)
 - `POST /api/golf/leagues/:id/draft/pick` - Submit draft pick
 - `GET /api/golf/leagues/:id/standings` - League standings
+
+**CFB Conferences (`/api/cfb/`):**
+- `GET /api/cfb/teams` - List all 136 FBS teams
+- `GET /api/cfb/games?week=&season=` - Synced games for a week
+- `POST /api/cfb/leagues/join` - Join league by code (must be before /:id route)
+- `GET/POST /api/cfb/leagues` - User's leagues / create league (2-8 members)
+- `GET /api/cfb/leagues/:id` - League detail with members (must be member)
+- `POST /api/cfb/leagues/:id/invite` - Commissioner: invite by username
+- `PATCH /api/cfb/leagues/:id/draft-order` - Commissioner: set manual draft order
+- `POST /api/cfb/leagues/:id/start-draft` - Commissioner: activate snake draft
+- `GET /api/cfb/leagues/:id/draft` - Draft state (4s poll when active)
+- `POST /api/cfb/leagues/:id/draft/pick` - Submit draft pick (7 rounds)
+- `GET /api/cfb/leagues/:id/roster?userId=` - Roster with records + this week's game
+- `GET/POST /api/cfb/leagues/:id/lineup` - Weekly lineup (exactly 5 starters)
+- `GET /api/cfb/leagues/:id/free-agents` - Unclaimed teams
+- `POST /api/cfb/leagues/:id/free-agents/claim` - Drop-one/add-one claim
+- `GET /api/cfb/leagues/:id/matchups?week=` - H2H matchups with lineup details
+- `GET /api/cfb/leagues/:id/standings` - Standings (wins desc → totalTeamWins desc)
+- `GET/POST /api/cfb/leagues/:id/trades` - Trade list / propose (equal counts 1-3)
+- `POST /api/cfb/leagues/:id/trades/:tradeId/respond` - accept/reject/cancel
+- `GET /api/cfb/admin/leagues` - Admin: all leagues
+- `POST /api/cfb/admin/sync-games` - Admin: sync week's games from ESPN {week, season?}
+- `POST /api/cfb/admin/leagues/:id/finalize-week` - Admin: score matchups + advance week
 
 ### Design System
 The application follows documented design guidelines in `design_guidelines.md`:
@@ -189,6 +224,9 @@ The application follows documented design guidelines in `design_guidelines.md`:
 - `/golf/leagues/:id` - League detail (members, join code, invite, start draft)
 - `/golf/leagues/:id/draft` - Live snake draft room (4s polling while active)
 - `/golf/leagues/:id/standings` - League standings
+- `/cfb` - CFB Conferences hub (create/join leagues)
+- `/cfb/leagues/:id` - League detail (tabs: Matchup, Roster/Lineup, Standings, Free Agency, Trades, Members)
+- `/cfb/leagues/:id/draft` - Live snake draft room (4s polling while active)
 
 ## Recent Changes
 
@@ -216,6 +254,18 @@ The application follows documented design guidelines in `design_guidelines.md`:
 - Draft room polls every 4 seconds while active for real-time updates
 - Standings show total strokes per team (lower = better), updated as scores are entered
 - 7 new database tables: golf_golfers, golf_tournaments, golf_tournament_golfers, golf_golfer_scores, golf_leagues, golf_league_members, golf_draft_picks
+
+### CFB Conferences Platform (Jul 2026)
+- Added CFB Conferences as the 8th platform: fantasy college football leagues
+- 136 FBS teams seeded on server startup from ESPN's free public API (name, abbreviation, logo)
+- Features: create/join leagues (2-8 members), snake draft of 7 teams each, weekly lineups of 5 starters
+- H2H scoring: most straight-up wins by starters wins the week; ties allowed
+- Free agency (drop-one/add-one), trades (equal team counts 1-3, accept/reject/cancel)
+- Standings sorted by matchup wins desc → total team wins desc
+- Playoffs weeks 12-14: top 6 teams, top 2 get quarterfinal byes, championship week 14
+- Admin tab in unified admin panel: sync real games from ESPN per week, finalize week (scores matchups + advances week)
+- Draft room polls every 4 seconds while active for real-time updates
+- 10 new database tables: cfb_teams, cfb_leagues, cfb_league_members, cfb_draft_picks, cfb_rosters, cfb_lineups, cfb_games, cfb_matchups, cfb_trades, cfb_transactions
 
 ### Admin Access
 - Admin is controlled via `isAdmin` boolean field on user accounts

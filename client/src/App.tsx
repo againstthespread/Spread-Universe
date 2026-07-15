@@ -32,6 +32,9 @@ import GolfDashboard from "@/pages/golf/index";
 import GolfLeagueDetail from "@/pages/golf/league-detail";
 import GolfDraftRoom from "@/pages/golf/draft";
 import GolfStandings from "@/pages/golf/standings";
+import CfbDashboard from "@/pages/cfb/index";
+import CfbLeagueDetail from "@/pages/cfb/league-detail";
+import CfbDraftRoom from "@/pages/cfb/draft";
 import AdminPanel from "@/pages/admin";
 
 function Router() {
@@ -61,6 +64,9 @@ function Router() {
       <Route path="/golf/leagues/:id" component={GolfLeagueDetail} />
       <Route path="/golf/leagues/:id/draft" component={GolfDraftRoom} />
       <Route path="/golf/leagues/:id/standings" component={GolfStandings} />
+      <Route path="/cfb" component={CfbDashboard} />
+      <Route path="/cfb/leagues/:id" component={CfbLeagueDetail} />
+      <Route path="/cfb/leagues/:id/draft" component={CfbDraftRoom} />
       <Route path="/admin" component={AdminPanel} />
       <Route component={NotFound} />
     </Switch>

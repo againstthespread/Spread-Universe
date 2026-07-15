@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Users, Trophy, Tv, Target, Cloud, BarChart3, Flag, KeyRound, Copy, Check, ChevronUp, ChevronDown, GripVertical, LayoutList } from "lucide-react";
+import { Loader2, Users, Trophy, Tv, Target, Cloud, BarChart3, Flag, Shield, KeyRound, Copy, Check, ChevronUp, ChevronDown, GripVertical, LayoutList } from "lucide-react";
 import { platforms } from "@shared/schema";
 
 import CrowdlineAdminContent from "./crowdline/admin-content";
@@ -18,6 +18,7 @@ import MarchMadnessAdminContent from "./marchmadness/admin-content";
 import PostseasonAdminContent from "./postseason/admin-content";
 import GamblingLeagueAdminContent from "./gambling-league/admin-content";
 import GolfAdminContent from "./golf/admin-content";
+import CfbAdminContent from "./cfb/admin-content";
 
 function UserManagementContent() {
   const { toast } = useToast();
@@ -270,7 +271,7 @@ export default function AdminPanel() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 lg:grid-cols-9 h-auto gap-1" data-testid="tabs-admin-platforms">
+        <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 lg:grid-cols-10 h-auto gap-1" data-testid="tabs-admin-platforms">
           <TabsTrigger value="users" className="flex items-center gap-2" data-testid="tab-users">
             <KeyRound className="h-4 w-4" />
             <span className="hidden sm:inline">Users</span>
@@ -302,6 +303,10 @@ export default function AdminPanel() {
           <TabsTrigger value="golf" className="flex items-center gap-2" data-testid="tab-golf">
             <Flag className="h-4 w-4" />
             <span className="hidden sm:inline">Golf Fantasy</span>
+          </TabsTrigger>
+          <TabsTrigger value="cfb" className="flex items-center gap-2" data-testid="tab-cfb">
+            <Shield className="h-4 w-4" />
+            <span className="hidden sm:inline">CFB</span>
           </TabsTrigger>
           <TabsTrigger value="platformOrder" className="flex items-center gap-2" data-testid="tab-platform-order">
             <LayoutList className="h-4 w-4" />
@@ -457,6 +462,24 @@ export default function AdminPanel() {
             </CardHeader>
             <CardContent>
               <GolfAdminContent />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="cfb">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Shield className="h-5 w-5" />
+                  CFB Conferences Admin
+                </CardTitle>
+                <CardDescription>Sync college football games and finalize league weeks</CardDescription>
+              </div>
+              <Badge variant="outline">College Football</Badge>
+            </CardHeader>
+            <CardContent>
+              <CfbAdminContent />
             </CardContent>
           </Card>
         </TabsContent>
