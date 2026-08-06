@@ -226,6 +226,7 @@ export interface IStorage {
   gl_getChampion(leagueId: string): Promise<User | null>;
   
   gl_getLeagueStandings(leagueId: string): Promise<GamblingLeagueStandingEntry[]>;
+  gl_getProjectedSeeds(leagueId: string): Promise<{ userId: string; username: string; wins: number; npw: number }[]>;
   
   // PostseasonATS methods
   ps_getGames(): Promise<PostseasonGame[]>;
@@ -1218,6 +1219,33 @@ export class DatabaseStorage implements IStorage {
     // Deterministic final tiebreaker: stable userId ordering
     rows.sort((a, b) => b.wins - a.wins || b.npw - a.npw || a.userId.localeCompare(b.userId));
     return rows.map(r => r.userId);
+  }
+
+  /**
+   * Projected playoff seeding "as of now": same computation and tiebreaks as
+   * gl_getPlayoffSeeds (wins, then total NPW, then stable userId), with
+   * display info attached. Used for the pre-playoffs projected bracket.
+   */
+  async gl_getProjectedSeeds(leagueId: string): Promise<{ userId: string; username: string; wins: number; npw: number }[]> {
+    const members = await this.gl_getLeagueMembers(leagueId);
+    const order = await this.gl_getPlayoffSeeds(leagueId);
+    const byId = new Map(members.map(m => [m.userId, m]));
+    const matchups = (await db.select().from(gamblingLeagueMatchups)
+      .where(eq(gamblingLeagueMatchups.leagueId, leagueId)))
+      .filter(m => !m.isPlayoff && m.isComplete);
+    return order.map(userId => {
+      let wins = 0, npw = 0;
+      for (const m of matchups) {
+        if (m.user1Id === userId) {
+          if (m.winnerId === userId) wins++;
+          npw += m.user1Npw || 0;
+        } else if (m.user2Id === userId) {
+          if (m.winnerId === userId) wins++;
+          npw += m.user2Npw || 0;
+        }
+      }
+      return { userId, username: byId.get(userId)?.user.username ?? "Unknown", wins, npw };
+    });
   }
 
   /**

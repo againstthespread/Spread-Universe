@@ -1191,6 +1191,18 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/gambling-league/leagues/:id/projected-seeds", requireAuth, async (req, res) => {
+    try {
+      const league = await storage.gl_getLeague(req.params.id);
+      if (!league) return res.status(404).json({ message: "League not found" });
+      const seeds = await storage.gl_getProjectedSeeds(req.params.id);
+      res.json(seeds);
+    } catch (error) {
+      console.error("GL projected seeds error:", error);
+      res.status(500).json({ message: "Failed to get projected seeds" });
+    }
+  });
+
   app.get("/api/gambling-league/leagues/:id/standings", requireAuth, async (req, res) => {
     try {
       const standings = await storage.gl_getLeagueStandings(req.params.id);

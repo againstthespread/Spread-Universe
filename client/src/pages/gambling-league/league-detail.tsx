@@ -3,13 +3,14 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useParams, Link } from "wouter";
 import { useAuth } from "@/lib/auth-context";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StandingsTab } from "@/components/gambling-league/standings-tab";
 import { PicksTab } from "@/components/gambling-league/picks-tab";
 import { ScheduleTab } from "@/components/gambling-league/schedule-tab";
+import { PlayoffsTab } from "@/components/gambling-league/playoffs-tab";
 import { MatchupDetailDialog } from "@/components/gambling-league/matchup-detail-dialog";
 import { ArrowLeft, Trophy, Calendar, Target, Users, Copy, Play, Crown, GitBranch } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -37,18 +38,6 @@ export default function LeagueDetail() {
   });
 
   const playoffsStarted = !!league && league.currentWeek >= 15 && league.status !== "open" && league.status !== "full";
-
-  const { data: allMatchups = [] } = useQuery<GamblingLeagueMatchupWithUsers[]>({
-    queryKey: ["/api/gambling-league/leagues", id, "matchups", "all"],
-    queryFn: async () => {
-      const res = await fetch(`/api/gambling-league/leagues/${id}/matchups`, { credentials: "include" });
-      if (!res.ok) throw new Error(await res.text());
-      return res.json();
-    },
-    enabled: playoffsStarted,
-  });
-
-  const playoffMatchups = allMatchups.filter(m => m.isPlayoff);
 
   const { data: championData } = useQuery<{ champion: { id: string; username: string } | null }>({
     queryKey: ["/api/gambling-league/leagues", id, "champion"],
@@ -167,65 +156,8 @@ export default function LeagueDetail() {
         </Card>
       )}
 
-      {playoffsStarted && playoffMatchups.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <GitBranch className="w-5 h-5" />
-              Playoff Bracket
-            </CardTitle>
-            <CardDescription>Weeks 15–17: Quarterfinals, Semifinals, Championship</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-6 md:grid-cols-3" data-testid="playoff-bracket">
-              {(["quarterfinal", "semifinal", "championship"] as const).map((round) => {
-                const roundMatchups = playoffMatchups.filter(m => m.playoffRound === round);
-                const roundLabel = round === "championship" ? "Championship" : round === "semifinal" ? "Semifinals" : "Quarterfinals";
-                return (
-                  <div key={round} className="space-y-3">
-                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">{roundLabel}</h3>
-                    {roundMatchups.length === 0 ? (
-                      <div className="p-3 rounded-md border border-dashed text-sm text-muted-foreground text-center">
-                        TBD
-                      </div>
-                    ) : (
-                      roundMatchups.map((matchup) => (
-                        <div
-                          key={matchup.id}
-                          className="p-3 rounded-md border hover-elevate cursor-pointer space-y-1"
-                          onClick={() => {
-                            setSelectedMatchup(matchup);
-                            setMatchupDialogOpen(true);
-                          }}
-                          data-testid={`bracket-matchup-${matchup.id}`}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className={matchup.winnerId === matchup.user1.id ? "font-bold text-green-600 dark:text-green-400" : ""}>
-                              {matchup.user1.username}
-                              {matchup.winnerId === matchup.user1.id && <Crown className="w-3 h-3 inline ml-1 text-yellow-500" />}
-                            </span>
-                            {matchup.isComplete && <Badge variant="secondary">{matchup.user1Npw ?? 0}</Badge>}
-                          </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className={matchup.winnerId === matchup.user2?.id ? "font-bold text-green-600 dark:text-green-400" : ""}>
-                              {matchup.user2?.username || "BYE"}
-                              {matchup.user2 && matchup.winnerId === matchup.user2.id && <Crown className="w-3 h-3 inline ml-1 text-yellow-500" />}
-                            </span>
-                            {matchup.isComplete && matchup.user2 && <Badge variant="secondary">{matchup.user2Npw ?? 0}</Badge>}
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       <Tabs defaultValue={isMember ? "picks" : "standings"} className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="standings" className="flex items-center gap-2" data-testid="tab-standings">
             <Trophy className="w-4 h-4" />
             Standings
@@ -237,6 +169,10 @@ export default function LeagueDetail() {
           <TabsTrigger value="schedule" className="flex items-center gap-2" data-testid="tab-schedule">
             <Calendar className="w-4 h-4" />
             Schedule
+          </TabsTrigger>
+          <TabsTrigger value="playoffs" className="flex items-center gap-2" data-testid="tab-playoffs">
+            <GitBranch className="w-4 h-4" />
+            Playoffs
           </TabsTrigger>
         </TabsList>
         <TabsContent value="standings" className="mt-6">
@@ -257,6 +193,17 @@ export default function LeagueDetail() {
         </TabsContent>
         <TabsContent value="schedule" className="mt-6">
           <ScheduleTab leagueId={league.id} currentWeek={league.currentWeek} />
+        </TabsContent>
+        <TabsContent value="playoffs" className="mt-6">
+          <PlayoffsTab
+            leagueId={league.id}
+            playoffsStarted={playoffsStarted}
+            seasonStarted={league.status !== "open" && league.status !== "full"}
+            onMatchupClick={(matchup) => {
+              setSelectedMatchup(matchup);
+              setMatchupDialogOpen(true);
+            }}
+          />
         </TabsContent>
       </Tabs>
 
