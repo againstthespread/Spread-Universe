@@ -18,6 +18,9 @@ const roundLabel = (round: string | null) =>
 
 export function ScheduleTab({ leagueId, currentWeek }: ScheduleTabProps) {
   const currentDisplayWeek = Math.min(currentWeek, 17);
+  // Regular season is fully scheduled at season start; playoff weeks become
+  // browsable once the league reaches them.
+  const maxWeek = currentWeek >= 15 ? 17 : 14;
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
   const [selectedMatchup, setSelectedMatchup] = useState<GamblingLeagueMatchupWithUsers | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -42,6 +45,9 @@ export function ScheduleTab({ leagueId, currentWeek }: ScheduleTabProps) {
               {matchups[0]?.isPlayoff
                 ? `${roundLabel(matchups[0].playoffRound)} — Week ${displayWeek}`
                 : `Week ${displayWeek} Matchups`}
+              {displayWeek > currentWeek && (
+                <Badge variant="outline" data-testid="badge-upcoming-week">Upcoming</Badge>
+              )}
             </CardTitle>
             <div className="flex items-center gap-2">
               <Button
@@ -61,7 +67,7 @@ export function ScheduleTab({ leagueId, currentWeek }: ScheduleTabProps) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {Array.from({ length: currentDisplayWeek }, (_, i) => i + 1).map((w) => (
+                  {Array.from({ length: maxWeek }, (_, i) => i + 1).map((w) => (
                     <SelectItem key={w} value={String(w)} data-testid={`option-week-${w}`}>
                       {w >= 15 ? `Week ${w} (${w === 17 ? "Championship" : w === 16 ? "Semifinals" : "Quarterfinals"})` : `Week ${w}`}
                     </SelectItem>
@@ -71,8 +77,8 @@ export function ScheduleTab({ leagueId, currentWeek }: ScheduleTabProps) {
               <Button
                 variant="outline"
                 size="icon"
-                disabled={displayWeek >= currentDisplayWeek}
-                onClick={() => setSelectedWeek(Math.min(currentDisplayWeek, displayWeek + 1))}
+                disabled={displayWeek >= maxWeek}
+                onClick={() => setSelectedWeek(Math.min(maxWeek, displayWeek + 1))}
                 data-testid="button-next-week"
               >
                 <ArrowRight className="w-4 h-4" />
@@ -85,7 +91,9 @@ export function ScheduleTab({ leagueId, currentWeek }: ScheduleTabProps) {
             <p className="text-sm text-muted-foreground text-center py-6">Loading matchups...</p>
           ) : matchups.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-6" data-testid="text-no-matchups">
-              No matchups for week {displayWeek}.
+              {displayWeek >= 15
+                ? `${displayWeek === 17 ? "Championship" : displayWeek === 16 ? "Semifinals" : "Quarterfinals"} bracket to be determined — matchups are set once the previous round finishes.`
+                : `No matchups for week ${displayWeek}.`}
             </p>
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
