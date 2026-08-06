@@ -366,6 +366,8 @@ export const gamblingLeagueMatchups = pgTable("gambling_league_matchups", {
   user2Npw: integer("user2_npw"),
   winnerId: varchar("winner_id").references(() => users.id, { onDelete: 'set null' }),
   isComplete: boolean("is_complete").default(false).notNull(),
+  isPlayoff: boolean("is_playoff").default(false).notNull(),
+  playoffRound: text("playoff_round"),
 });
 
 // Gambling League Insert Schemas

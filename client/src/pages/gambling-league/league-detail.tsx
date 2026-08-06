@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { useParams, Link } from "wouter";
 import { useAuth } from "@/lib/auth-context";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +11,7 @@ import { StandingsTab } from "@/components/gambling-league/standings-tab";
 import { PicksTab } from "@/components/gambling-league/picks-tab";
 import { ScheduleTab } from "@/components/gambling-league/schedule-tab";
 import { MatchupDetailDialog } from "@/components/gambling-league/matchup-detail-dialog";
-import { ArrowLeft, Trophy, Calendar, Target, Users, Swords, Copy } from "lucide-react";
+import { ArrowLeft, Trophy, Calendar, Target, Users, Swords, Copy, Play, Crown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { GamblingLeagueLeague, GamblingLeagueMember, GamblingLeagueMatchupWithUsers, User } from "@shared/schema";
 
@@ -35,14 +36,38 @@ export default function LeagueDetail() {
     enabled: !!id,
   });
 
+  const displayWeek = league ? Math.min(league.currentWeek, 17) : 1;
+
   const { data: matchups = [] } = useQuery<GamblingLeagueMatchupWithUsers[]>({
-    queryKey: ["/api/gambling-league/leagues", id, "matchups", league?.currentWeek],
+    queryKey: ["/api/gambling-league/leagues", id, "matchups", displayWeek],
     queryFn: async () => {
-      const res = await fetch(`/api/gambling-league/leagues/${id}/matchups?week=${league?.currentWeek}`, { credentials: "include" });
+      const res = await fetch(`/api/gambling-league/leagues/${id}/matchups?week=${displayWeek}`, { credentials: "include" });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
     enabled: !!league,
+  });
+
+  const { data: championData } = useQuery<{ champion: { id: string; username: string } | null }>({
+    queryKey: ["/api/gambling-league/leagues", id, "champion"],
+    queryFn: async () => {
+      const res = await fetch(`/api/gambling-league/leagues/${id}/champion`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    enabled: league?.status === "completed",
+  });
+
+  const queryClient = useQueryClient();
+  const startSeasonMutation = useMutation({
+    mutationFn: async () => apiRequest("POST", `/api/gambling-league/leagues/${id}/start`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gambling-league/leagues", id] });
+      toast({ title: "Season started!", description: "The matchup schedule has been generated." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message || "Failed to start season", variant: "destructive" });
+    },
   });
 
   if (isLoading) {
@@ -99,6 +124,17 @@ export default function LeagueDetail() {
             </span>
           </div>
         </div>
+        {isMember && (league.status === "open" || league.status === "full") && league.creatorId === user?.id && league.members.length >= 2 && (
+          <Button
+            size="sm"
+            onClick={() => startSeasonMutation.mutate()}
+            disabled={startSeasonMutation.isPending}
+            data-testid="button-start-season"
+          >
+            <Play className="w-4 h-4 mr-2" />
+            {startSeasonMutation.isPending ? "Starting..." : "Start Season"}
+          </Button>
+        )}
         {isMember && (
           <Button
             variant="outline"
@@ -115,12 +151,28 @@ export default function LeagueDetail() {
         )}
       </div>
 
+      {league.status === "completed" && championData?.champion && (
+        <Card className="border-yellow-500/50">
+          <CardContent className="p-6 flex items-center gap-3">
+            <Crown className="w-8 h-8 text-yellow-500" />
+            <div>
+              <h2 className="text-lg font-semibold" data-testid="text-champion">
+                {championData.champion.username} is the League Champion!
+              </h2>
+              <p className="text-sm text-muted-foreground">Season complete</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {matchups.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
               <Swords className="w-5 h-5" />
-              Week {league.currentWeek} Matchups
+              {matchups[0]?.isPlayoff
+                ? `${matchups[0].playoffRound === "championship" ? "Championship" : matchups[0].playoffRound === "semifinal" ? "Semifinals" : "Quarterfinals"} — Week ${displayWeek}`
+                : `Week ${displayWeek} Matchups`}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -139,11 +191,11 @@ export default function LeagueDetail() {
                     <span className={matchup.winnerId === matchup.user1.id ? "font-bold text-green-600 dark:text-green-400" : ""}>
                       {matchup.user1.username}
                     </span>
-                    {matchup.isComplete && <Badge variant="secondary" size="sm">{matchup.user1Npw ?? 0}</Badge>}
+                    {matchup.isComplete && <Badge variant="secondary">{matchup.user1Npw ?? 0}</Badge>}
                   </div>
                   <span className="text-muted-foreground text-sm">vs</span>
                   <div className="flex items-center gap-2">
-                    {matchup.isComplete && matchup.user2 && <Badge variant="secondary" size="sm">{matchup.user2Npw ?? 0}</Badge>}
+                    {matchup.isComplete && matchup.user2 && <Badge variant="secondary">{matchup.user2Npw ?? 0}</Badge>}
                     <span className={matchup.winnerId === matchup.user2?.id ? "font-bold text-green-600 dark:text-green-400" : ""}>
                       {matchup.user2?.username || "BYE"}
                     </span>

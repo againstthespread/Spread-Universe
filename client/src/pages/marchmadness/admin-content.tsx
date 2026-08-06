@@ -707,7 +707,7 @@ export default function MarchMadnessAdminContent() {
                 <TableBody>
                   {rounds.map((round) => (
                     <TableRow key={round.id} data-testid={`row-mm-round-${round.id}`}>
-                      <TableCell>{round.roundOrder}</TableCell>
+                      <TableCell>{round.order}</TableCell>
                       <TableCell>{round.displayName}</TableCell>
                       <TableCell>{round.pointValue} pts</TableCell>
                     </TableRow>

@@ -204,6 +204,7 @@ export interface IStorage {
   gl_updateLeagueWeek(id: string, week: number): Promise<GamblingLeagueLeague | undefined>;
   
   gl_getGames(): Promise<GamblingLeagueGame[]>;
+  gl_getGame(id: string): Promise<GamblingLeagueGame | undefined>;
   gl_getGamesByWeek(week: number): Promise<GamblingLeagueGame[]>;
   gl_createGame(game: InsertGamblingLeagueGame): Promise<GamblingLeagueGame>;
   gl_updateGameResult(id: string, data: UpdateGamblingLeagueGameResult): Promise<GamblingLeagueGame | undefined>;
@@ -219,6 +220,9 @@ export interface IStorage {
   gl_getMatchupsByLeagueWeek(leagueId: string, week: number): Promise<GamblingLeagueMatchupWithUsers[]>;
   gl_createMatchup(matchup: InsertGamblingLeagueMatchup): Promise<GamblingLeagueMatchup>;
   gl_updateMatchupResult(id: string, data: { user1Npw?: number; user2Npw?: number; winnerId?: string | null; isComplete?: boolean }): Promise<GamblingLeagueMatchup | undefined>;
+  gl_startSeason(leagueId: string): Promise<void>;
+  gl_finalizeWeek(leagueId: string, week: number): Promise<{ currentWeek: number; status: string }>;
+  gl_getChampion(leagueId: string): Promise<User | null>;
   
   gl_getLeagueStandings(leagueId: string): Promise<GamblingLeagueStandingEntry[]>;
   
@@ -889,11 +893,33 @@ export class DatabaseStorage implements IStorage {
   }
 
   async gl_joinLeague(leagueId: string, userId: string): Promise<GamblingLeagueMember> {
-    const [member] = await db.insert(gamblingLeagueMembers).values({ leagueId, userId }).returning();
-    const members = await this.gl_getLeagueMembers(leagueId);
-    const league = await this.gl_getLeague(leagueId);
-    if (league && members.length >= league.capacity) {
-      await db.update(gamblingLeagueLeagues).set({ status: 'full' }).where(eq(gamblingLeagueLeagues.id, leagueId));
+    const { member, becameFull } = await db.transaction(async (tx) => {
+      // Lock the league row so concurrent joins serialize on capacity
+      const [league] = await tx.select().from(gamblingLeagueLeagues)
+        .where(eq(gamblingLeagueLeagues.id, leagueId))
+        .for('update');
+      if (!league) throw new Error("League not found");
+      if (league.status !== 'open') throw new Error("This league is not open for new members");
+
+      const members = await tx.select().from(gamblingLeagueMembers)
+        .where(eq(gamblingLeagueMembers.leagueId, leagueId));
+      if (members.length >= league.capacity) throw new Error("This league is full");
+
+      const [member] = await tx.insert(gamblingLeagueMembers).values({ leagueId, userId }).returning();
+
+      let becameFull = false;
+      if (members.length + 1 >= league.capacity) {
+        await tx.update(gamblingLeagueLeagues).set({ status: 'full' })
+          .where(eq(gamblingLeagueLeagues.id, leagueId));
+        becameFull = true;
+      }
+      return { member, becameFull };
+    });
+
+    // Auto-start the season once the league fills (gl_startSeason has its own
+    // conditional claim, so duplicate starts are safely rejected)
+    if (becameFull) {
+      await this.gl_startSeason(leagueId);
     }
     return member;
   }
@@ -932,6 +958,11 @@ export class DatabaseStorage implements IStorage {
 
   async gl_getGames(): Promise<GamblingLeagueGame[]> {
     return await db.select().from(gamblingLeagueGames).orderBy(gamblingLeagueGames.gameTime);
+  }
+
+  async gl_getGame(id: string): Promise<GamblingLeagueGame | undefined> {
+    const [game] = await db.select().from(gamblingLeagueGames).where(eq(gamblingLeagueGames.id, id));
+    return game;
   }
 
   async gl_getGamesByWeek(week: number): Promise<GamblingLeagueGame[]> {
@@ -1079,9 +1110,267 @@ export class DatabaseStorage implements IStorage {
     return matchup || undefined;
   }
 
+  static readonly GL_REGULAR_SEASON_WEEKS = 14;
+  static readonly GL_PLAYOFF_TEAMS = 6;
+
+  /**
+   * Generates the 14-week regular-season schedule using the circle method,
+   * shuffles member order with Fisher-Yates, and sets the league to 'active'.
+   * Odd member counts get a weekly bye (user2Id = null).
+   *
+   * Leagues with up to 14 members complete a full round robin within the 14
+   * weeks (opponents repeat once the cycle wraps). Leagues with 15+ members
+   * play a balanced partial schedule: 14 distinct rounds of the round robin,
+   * so everyone plays every week and faces each opponent at most once, but
+   * not every pairing occurs within the 14-week season.
+   */
+  async gl_startSeason(leagueId: string): Promise<void> {
+    await db.transaction(async (tx) => {
+      // Lock the league row so joins (which also lock it) serialize with the
+      // member snapshot + activation, preventing a member from joining
+      // between schedule generation and season start.
+      const [league] = await tx.select().from(gamblingLeagueLeagues)
+        .where(eq(gamblingLeagueLeagues.id, leagueId))
+        .for('update');
+      if (!league) throw new Error("League not found");
+      if (league.status !== 'open' && league.status !== 'full') {
+        throw new Error("Season has already started");
+      }
+      const members = await tx.select().from(gamblingLeagueMembers)
+        .where(eq(gamblingLeagueMembers.leagueId, leagueId));
+      if (members.length < 2) throw new Error("Need at least 2 members to start a season");
+
+      const values = DatabaseStorage.gl_buildSchedule(leagueId, members.map(m => m.userId));
+      await tx.update(gamblingLeagueLeagues).set({ status: 'active' })
+        .where(eq(gamblingLeagueLeagues.id, leagueId));
+      await tx.insert(gamblingLeagueMatchups).values(values);
+    });
+  }
+
+  /** Builds the 14-week schedule (circle method, Fisher-Yates shuffled). */
+  private static gl_buildSchedule(leagueId: string, memberIds: string[]): InsertGamblingLeagueMatchup[] {
+    const ids: (string | null)[] = [...memberIds];
+    // Fisher-Yates shuffle
+    for (let i = ids.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+    }
+    if (ids.length % 2 === 1) ids.push(null); // bye slot
+
+    const n = ids.length;
+    const rounds = n - 1;
+    const values: InsertGamblingLeagueMatchup[] = [];
+    // Circle method: fix ids[0], rotate the rest
+    const rotation = ids.slice(1);
+    for (let week = 1; week <= DatabaseStorage.GL_REGULAR_SEASON_WEEKS; week++) {
+      const round = (week - 1) % rounds;
+      const arr = [ids[0], ...rotation.slice(rotation.length - round), ...rotation.slice(0, rotation.length - round)];
+      for (let i = 0; i < n / 2; i++) {
+        const a = arr[i];
+        const b = arr[n - 1 - i];
+        if (a === null && b === null) continue;
+        const user1Id = (a ?? b)!;
+        const user2Id = a === null || b === null ? null : b;
+        values.push({ leagueId, week, user1Id, user2Id });
+      }
+    }
+
+    return values;
+  }
+
+  /** Net picks won for a user in a week: correct picks minus incorrect (pushes excluded). */
+  private async gl_netPicksWon(leagueId: string, userId: string, week: number): Promise<number> {
+    const picks = await this.gl_getPicksByUserLeagueWeek(userId, leagueId, week);
+    let net = 0;
+    for (const p of picks) {
+      if (p.isPush) continue;
+      if (p.isCorrect === true) net++;
+      else if (p.isCorrect === false) net--;
+    }
+    return net;
+  }
+
+  /** Playoff seeds: regular-season standings order (wins, then total NPW). */
+  private async gl_getPlayoffSeeds(leagueId: string, dbc: Pick<typeof db, 'select' | 'insert' | 'update'> = db): Promise<string[]> {
+    const members = await this.gl_getLeagueMembers(leagueId);
+    const matchups = (await dbc.select().from(gamblingLeagueMatchups)
+      .where(eq(gamblingLeagueMatchups.leagueId, leagueId)))
+      .filter(m => !m.isPlayoff && m.isComplete);
+    const rows = members.map(member => {
+      let wins = 0, npw = 0;
+      for (const m of matchups) {
+        if (m.user1Id === member.userId) {
+          if (m.winnerId === member.userId) wins++;
+          npw += m.user1Npw || 0;
+        } else if (m.user2Id === member.userId) {
+          if (m.winnerId === member.userId) wins++;
+          npw += m.user2Npw || 0;
+        }
+      }
+      return { userId: member.userId, wins, npw };
+    });
+    // Deterministic final tiebreaker: stable userId ordering
+    rows.sort((a, b) => b.wins - a.wins || b.npw - a.npw || a.userId.localeCompare(b.userId));
+    return rows.map(r => r.userId);
+  }
+
+  /**
+   * Scores all matchups for the given week from graded picks, advances the
+   * week, and generates playoff rounds entering weeks 15-17. Playoff ties go
+   * to the higher seed. After the championship week the league is completed.
+   */
+  async gl_finalizeWeek(leagueId: string, week: number): Promise<{ currentWeek: number; status: string }> {
+    const league = await this.gl_getLeague(leagueId);
+    if (!league) throw new Error("League not found");
+    if (league.status !== 'active') throw new Error("Season is not active");
+    if (week !== league.currentWeek) throw new Error(`Current week is ${league.currentWeek}, not ${week}`);
+
+    const matchups = await this.gl_getMatchupsByLeagueWeek(leagueId, week);
+
+    // Only require graded games when this league actually has matchups to
+    // score this week (e.g. small leagues have empty playoff bye weeks)
+    if (matchups.some(m => !m.isComplete)) {
+      const weekGames = await this.gl_getGamesByWeek(week);
+      if (weekGames.some(g => !g.isComplete)) {
+        throw new Error("All games for this week must have results before finalizing");
+      }
+    }
+    const seeds = week > DatabaseStorage.GL_REGULAR_SEASON_WEEKS
+      ? await this.gl_getPlayoffSeeds(leagueId)
+      : null;
+
+    // Precompute NPW outside the transaction (reads graded picks only)
+    const scored: { id: string; user1Npw: number; user2Npw: number; winnerId: string | null }[] = [];
+    for (const m of matchups) {
+      if (m.isComplete) continue;
+      const user1Npw = await this.gl_netPicksWon(leagueId, m.user1Id, week);
+      const user2Npw = m.user2Id ? await this.gl_netPicksWon(leagueId, m.user2Id, week) : 0;
+
+      let winnerId: string | null = null;
+      if (!m.user2Id) {
+        winnerId = m.user1Id; // bye week counts as a win
+      } else if (user1Npw > user2Npw) {
+        winnerId = m.user1Id;
+      } else if (user2Npw > user1Npw) {
+        winnerId = m.user2Id;
+      } else if (m.isPlayoff && seeds) {
+        const seed1 = seeds.indexOf(m.user1Id);
+        const seed2 = seeds.indexOf(m.user2Id);
+        winnerId = seed1 <= seed2 ? m.user1Id : m.user2Id;
+      }
+      scored.push({ id: m.id, user1Npw, user2Npw, winnerId });
+    }
+
+    const nextWeek = week + 1;
+    const isChampionshipWeek = week === DatabaseStorage.GL_REGULAR_SEASON_WEEKS + 3;
+    const status = isChampionshipWeek ? 'completed' : league.status;
+
+    await db.transaction(async (tx) => {
+      // Conditional week advance guards against concurrent finalizations
+      const claimed = await tx.update(gamblingLeagueLeagues)
+        .set({ currentWeek: nextWeek, ...(isChampionshipWeek ? { status: 'completed' } : {}) })
+        .where(and(
+          eq(gamblingLeagueLeagues.id, leagueId),
+          eq(gamblingLeagueLeagues.currentWeek, week),
+          eq(gamblingLeagueLeagues.status, 'active')
+        ))
+        .returning();
+      if (claimed.length === 0) throw new Error(`Week ${week} was already finalized`);
+
+      for (const s of scored) {
+        await tx.update(gamblingLeagueMatchups).set({
+          user1Npw: s.user1Npw, user2Npw: s.user2Npw, winnerId: s.winnerId, isComplete: true,
+        }).where(eq(gamblingLeagueMatchups.id, s.id));
+      }
+
+      if (!isChampionshipWeek) {
+        if (nextWeek === 15) await this.gl_generateQuarterfinals(leagueId, tx);
+        else if (nextWeek === 16) await this.gl_generateSemifinals(leagueId, tx);
+        else if (nextWeek === 17) await this.gl_generateChampionship(leagueId, tx);
+      }
+    });
+
+    return { currentWeek: nextWeek, status };
+  }
+
+  private async gl_getPlayoffMatchupsByWeek(leagueId: string, week: number, dbc: Pick<typeof db, 'select' | 'insert' | 'update'>) {
+    return dbc.select().from(gamblingLeagueMatchups).where(and(
+      eq(gamblingLeagueMatchups.leagueId, leagueId),
+      eq(gamblingLeagueMatchups.week, week)
+    ));
+  }
+
+  private async gl_generateQuarterfinals(leagueId: string, dbc: Pick<typeof db, 'select' | 'insert' | 'update'> = db): Promise<void> {
+    const seeds = await this.gl_getPlayoffSeeds(leagueId, dbc);
+    if (seeds.length < DatabaseStorage.GL_PLAYOFF_TEAMS) return;
+    const existing = await this.gl_getPlayoffMatchupsByWeek(leagueId, 15, dbc);
+    if (existing.length > 0) return;
+    await dbc.insert(gamblingLeagueMatchups).values([
+      { leagueId, week: 15, user1Id: seeds[2], user2Id: seeds[5], isPlayoff: true, playoffRound: "quarterfinal" },
+      { leagueId, week: 15, user1Id: seeds[3], user2Id: seeds[4], isPlayoff: true, playoffRound: "quarterfinal" },
+    ]);
+  }
+
+  private async gl_generateSemifinals(leagueId: string, dbc: Pick<typeof db, 'select' | 'insert' | 'update'> = db): Promise<void> {
+    const seeds = await this.gl_getPlayoffSeeds(leagueId, dbc);
+    const existing = await this.gl_getPlayoffMatchupsByWeek(leagueId, 16, dbc);
+    if (existing.length > 0) return;
+
+    if (seeds.length >= DatabaseStorage.GL_PLAYOFF_TEAMS) {
+      const qf = (await this.gl_getPlayoffMatchupsByWeek(leagueId, 15, dbc)).filter(m => m.isPlayoff && m.isComplete);
+      if (qf.length < 2) return;
+      const winners = qf.map(m => m.winnerId).filter((id): id is string => !!id);
+      winners.sort((a, b) => seeds.indexOf(a) - seeds.indexOf(b));
+      await dbc.insert(gamblingLeagueMatchups).values([
+        { leagueId, week: 16, user1Id: seeds[0], user2Id: winners[1] ?? null, isPlayoff: true, playoffRound: "semifinal" },
+        { leagueId, week: 16, user1Id: seeds[1], user2Id: winners[0] ?? null, isPlayoff: true, playoffRound: "semifinal" },
+      ]);
+    } else if (seeds.length >= 4) {
+      // 4-5 members: no quarterfinals, straight to semis (1v4, 2v3)
+      await dbc.insert(gamblingLeagueMatchups).values([
+        { leagueId, week: 16, user1Id: seeds[0], user2Id: seeds[3], isPlayoff: true, playoffRound: "semifinal" },
+        { leagueId, week: 16, user1Id: seeds[1], user2Id: seeds[2], isPlayoff: true, playoffRound: "semifinal" },
+      ]);
+    }
+    // 2-3 members: straight to the championship
+  }
+
+  private async gl_generateChampionship(leagueId: string, dbc: Pick<typeof db, 'select' | 'insert' | 'update'> = db): Promise<void> {
+    const existing = await this.gl_getPlayoffMatchupsByWeek(leagueId, 17, dbc);
+    if (existing.length > 0) return;
+    const seeds = await this.gl_getPlayoffSeeds(leagueId, dbc);
+
+    if (seeds.length >= 4) {
+      const sf = (await this.gl_getPlayoffMatchupsByWeek(leagueId, 16, dbc)).filter(m => m.isPlayoff && m.isComplete);
+      if (sf.length < 2) return;
+      const winners = sf.map(m => m.winnerId).filter((id): id is string => !!id);
+      if (winners.length < 2) return;
+      await dbc.insert(gamblingLeagueMatchups).values([
+        { leagueId, week: 17, user1Id: winners[0], user2Id: winners[1], isPlayoff: true, playoffRound: "championship" },
+      ]);
+    } else if (seeds.length >= 2) {
+      await dbc.insert(gamblingLeagueMatchups).values([
+        { leagueId, week: 17, user1Id: seeds[0], user2Id: seeds[1], isPlayoff: true, playoffRound: "championship" },
+      ]);
+    }
+  }
+
+  async gl_getChampion(leagueId: string): Promise<User | null> {
+    const [champ] = await db.select().from(gamblingLeagueMatchups).where(
+      and(
+        eq(gamblingLeagueMatchups.leagueId, leagueId),
+        eq(gamblingLeagueMatchups.isComplete, true),
+        eq(gamblingLeagueMatchups.playoffRound, "championship")
+      )
+    );
+    if (!champ?.winnerId) return null;
+    return (await this.getUser(champ.winnerId)) || null;
+  }
+
   async gl_getLeagueStandings(leagueId: string): Promise<GamblingLeagueStandingEntry[]> {
     const members = await this.gl_getLeagueMembers(leagueId);
-    const matchups = await this.gl_getMatchups(leagueId);
+    // Standings reflect the regular season only; playoff matchups are excluded
+    const matchups = (await this.gl_getMatchups(leagueId)).filter(m => !m.isPlayoff);
     const allPicks = await db.select().from(gamblingLeaguePicks).where(eq(gamblingLeaguePicks.leagueId, leagueId));
     
     const standings: GamblingLeagueStandingEntry[] = [];

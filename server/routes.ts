@@ -1117,8 +1117,76 @@ export async function registerRoutes(
       const member = await storage.gl_joinLeague(league.id, req.session.userId!);
       res.json(member);
     } catch (error) {
+      const known = ["League not found", "This league is not open for new members", "This league is full"];
+      if (error instanceof Error && known.includes(error.message)) {
+        return res.status(400).json({ message: error.message });
+      }
       console.error("GL join league error:", error);
       res.status(500).json({ message: "Failed to join league" });
+    }
+  });
+
+  app.post("/api/gambling-league/leagues/:id/start", requireAuth, async (req, res) => {
+    try {
+      const league = await storage.gl_getLeague(req.params.id);
+      if (!league) return res.status(404).json({ message: "League not found" });
+      const user = await storage.getUser(req.session.userId!);
+      if (league.creatorId !== req.session.userId && !user?.isAdmin) {
+        return res.status(403).json({ message: "Only the league creator can start the season" });
+      }
+      await storage.gl_startSeason(league.id);
+      res.json({ ok: true });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Failed to start season";
+      const known = ["Season has already started", "Need at least 2 members to start a season", "League not found"];
+      if (error instanceof Error && known.includes(error.message)) {
+        return res.status(400).json({ message: msg });
+      }
+      console.error("GL start season error:", error);
+      res.status(500).json({ message: "Failed to start season" });
+    }
+  });
+
+  app.get("/api/gambling-league/leagues/:id/champion", requireAuth, async (req, res) => {
+    try {
+      const champion = await storage.gl_getChampion(req.params.id);
+      res.json({ champion: champion ? { id: champion.id, username: champion.username } : null });
+    } catch (error) {
+      console.error("GL get champion error:", error);
+      res.status(500).json({ message: "Failed to get champion" });
+    }
+  });
+
+  app.get("/api/gambling-league/admin/leagues", requireAdmin, async (_req, res) => {
+    try {
+      const leagues = await storage.gl_getLeagues();
+      res.json(leagues);
+    } catch (error) {
+      console.error("GL admin leagues error:", error);
+      res.status(500).json({ message: "Failed to get leagues" });
+    }
+  });
+
+  app.post("/api/gambling-league/admin/leagues/:id/finalize-week", requireAdmin, async (req, res) => {
+    try {
+      const { week } = req.body;
+      if (typeof week !== "number" || week < 1) {
+        return res.status(400).json({ message: "week required" });
+      }
+      const result = await storage.gl_finalizeWeek(req.params.id, week);
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Failed to finalize week";
+      if (error instanceof Error && (
+        msg.startsWith("Current week is") ||
+        msg === "Season is not active" ||
+        msg === "League not found" ||
+        msg.startsWith("All games")
+      )) {
+        return res.status(400).json({ message: msg });
+      }
+      console.error("GL finalize week error:", error);
+      res.status(500).json({ message: "Failed to finalize week" });
     }
   });
 
@@ -1215,6 +1283,38 @@ export async function registerRoutes(
         return res.status(400).json({ message: result.error.errors[0].message });
       }
       
+      // Integrity guards: membership, league week, and game state
+      const leagueIds = Array.from(new Set(result.data.picks.map(p => p.leagueId)));
+      for (const lid of leagueIds) {
+        const league = await storage.gl_getLeague(lid);
+        if (!league) return res.status(404).json({ message: "League not found" });
+        if (league.status === 'completed') {
+          return res.status(400).json({ message: "This league's season is over" });
+        }
+        const members = await storage.gl_getLeagueMembers(lid);
+        if (!members.some(m => m.userId === req.session.userId)) {
+          return res.status(403).json({ message: "You are not a member of this league" });
+        }
+        const badWeek = result.data.picks.find(p => p.leagueId === lid && p.week !== league.currentWeek);
+        if (badWeek) {
+          return res.status(400).json({ message: `Picks can only be made for the current week (${league.currentWeek})` });
+        }
+      }
+      for (const gameId of Array.from(new Set(result.data.picks.map(p => p.gameId)))) {
+        const game = await storage.gl_getGame(gameId);
+        if (!game) return res.status(404).json({ message: "Game not found" });
+        if (game.isComplete) {
+          return res.status(400).json({ message: "Picks are locked for games that already have results" });
+        }
+        if (new Date(game.gameTime) <= new Date()) {
+          return res.status(400).json({ message: "Picks are locked once a game has kicked off" });
+        }
+        const mismatched = result.data.picks.find(p => p.gameId === gameId && p.week !== game.week);
+        if (mismatched) {
+          return res.status(400).json({ message: "Pick week does not match the game's week" });
+        }
+      }
+
       const savedPicks = [];
       for (const pickData of result.data.picks) {
         if (pickData.pickedTeam === null) {
@@ -1294,7 +1394,15 @@ export async function registerRoutes(
       if (typeof week !== 'number' || week < 1) {
         return res.status(400).json({ message: "Invalid week" });
       }
-      
+
+      const existing = await storage.gl_getLeague(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ message: "League not found" });
+      }
+      if (existing.status === 'active' || existing.status === 'completed') {
+        return res.status(400).json({ message: "Active seasons advance only via finalize-week" });
+      }
+
       const league = await storage.gl_updateLeagueWeek(req.params.id, week);
       if (!league) {
         return res.status(404).json({ message: "League not found" });

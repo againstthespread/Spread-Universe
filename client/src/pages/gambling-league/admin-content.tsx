@@ -12,7 +12,8 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Plus, Trash2, Check, Trophy, Loader2 } from "lucide-react";
 import { formatInEastern } from "@/lib/timezone";
-import type { GamblingLeagueGame } from "@shared/schema";
+import type { GamblingLeagueGame, GamblingLeagueLeague } from "@shared/schema";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 function isEasternDST(utcDate: Date): boolean {
   const year = utcDate.getUTCFullYear();
@@ -112,6 +113,28 @@ export default function GamblingLeagueAdminContent() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/gambling-league/admin/weeks", selectedWeek, "games"] });
       toast({ title: "Game deleted" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const { data: adminLeagues = [] } = useQuery<GamblingLeagueLeague[]>({
+    queryKey: ["/api/gambling-league/admin/leagues"],
+    queryFn: async () => {
+      const res = await fetch("/api/gambling-league/admin/leagues", { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+  });
+
+  const finalizeWeekMutation = useMutation({
+    mutationFn: async ({ leagueId, week }: { leagueId: string; week: number }) => {
+      return await apiRequest("POST", `/api/gambling-league/admin/leagues/${leagueId}/finalize-week`, { week });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gambling-league/admin/leagues"] });
+      toast({ title: "Week finalized", description: "Matchups scored and week advanced." });
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -238,7 +261,41 @@ export default function GamblingLeagueAdminContent() {
         <TabsList>
           <TabsTrigger value="games">Manage Games</TabsTrigger>
           <TabsTrigger value="results">Enter Results</TabsTrigger>
+          <TabsTrigger value="leagues">Leagues</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="leagues" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">League Management</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {adminLeagues.length === 0 && (
+                <p className="text-sm text-muted-foreground">No leagues yet.</p>
+              )}
+              {adminLeagues.map((league) => (
+                <div key={league.id} className="flex items-center justify-between gap-4 rounded-md border p-3" data-testid={`admin-league-${league.id}`}>
+                  <div>
+                    <p className="font-medium">{league.name}</p>
+                    <p className="text-sm text-muted-foreground">
+                      Status: {league.status} · Week {league.currentWeek}
+                    </p>
+                  </div>
+                  {league.status === "active" && (
+                    <Button
+                      size="sm"
+                      onClick={() => finalizeWeekMutation.mutate({ leagueId: league.id, week: league.currentWeek })}
+                      disabled={finalizeWeekMutation.isPending}
+                      data-testid={`button-finalize-${league.id}`}
+                    >
+                      Finalize Week {league.currentWeek}
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="games" className="space-y-4">
           <div className="flex gap-2 flex-wrap">

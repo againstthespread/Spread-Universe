@@ -117,6 +117,11 @@ The `shared/` directory contains:
 **Gambling League (`/api/gambling-league/`):**
 - Leagues, membership, games, picks, matchups, standings
 - Invite-only: leagues have unique 8-char join codes; `POST /leagues/join` with `joinCode` (no public league list)
+- Season engine: weeks 1-14 regular season (full round robin for ≤14 members; 15+ members play a balanced partial schedule — 14 distinct rounds, each opponent at most once; auto-started when league fills; `POST /leagues/:id/start` for creator/admin to start a partial league), playoffs weeks 15-17 (quarterfinals require 6+ members; 4-5 members go straight to semifinals; 2-3 straight to championship). Matchups scored by net picks won (correct minus incorrect, pushes excluded); playoff ties go to the higher seed; bye weeks count as wins.
+- `POST /admin/leagues/:id/finalize-week` (body `{week}`) - scores matchups from graded picks, advances week, generates playoff rounds, completes league after week 17
+- `GET /admin/leagues` - admin list of all leagues; `GET /leagues/:id/champion` - championship winner once completed
+- Standings reflect regular-season matchups only (playoffs excluded)
+- Schema note: `gambling_league_matchups.is_playoff` / `playoff_round` columns are synced via `npm run db:push` (project convention — no migration files); run db:push against production before deploying this feature
 
 **Postseason ATS (`/api/postseason/`):**
 - Playoff games by round, picks, leaderboard, pick history

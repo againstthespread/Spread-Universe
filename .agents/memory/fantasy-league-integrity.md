@@ -7,3 +7,11 @@ description: Design rules for league platforms (CFB Conferences etc.) so results
 - Playoff bracket generation must handle every allowed league size, not just the full bracket. CFB leagues allow 2-8 members but the standard bracket needs 6. Fallbacks: 4-5 members → straight to semis (1v4, 2v3); 2-3 members → top-2 championship at the final week. Without a fallback, small leagues dead-end with no champion.
 - Multi-step roster mutations (free-agent drop+add, trade roster swaps) must be wrapped in `db.transaction` — unique constraints catch races but leave partial state (e.g. 6-team roster) if steps commit separately.
 - Avoid `arr.sort(() => Math.random()-0.5)` for draft-order shuffles — it's biased; use Fisher-Yates.
+
+## Season/week finalization concurrency
+Season-start and week-advance operations must claim league state atomically (row lock or conditional update inside one transaction covering the member/matchup reads and writes), so concurrent joins/starts/finalizations cannot produce duplicate schedules, duplicate playoff rounds, or schedules missing a just-joined member.
+**Why:** check-then-act races on league status/week corrupt brackets.
+**How to apply:** any league engine that starts seasons, advances weeks, or generates rounds.
+
+## Pick submission locking
+Pick endpoints must verify membership, league not completed, pick week == league current week, and game not complete — otherwise users can edit picks after results are in and manipulate standings/seeds.
