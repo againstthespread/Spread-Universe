@@ -13,6 +13,8 @@ interface MatchupDetailDialogProps {
 
 type MatchupPicksResponse = {
   picksRevealed: boolean;
+  user1PickCount: number;
+  user2PickCount: number | null;
   games: (GamblingLeagueGame & {
     user1Pick: GamblingLeaguePick | null;
     user2Pick: GamblingLeaguePick | null;
@@ -77,6 +79,19 @@ export function MatchupDetailDialog({ matchup, open, onOpenChange }: MatchupDeta
 
   if (!matchup) return null;
 
+  // Pre-reveal, hidden players' picked games aren't listed; summarize with counts.
+  const hiddenOpponentNote = (() => {
+    if (!pickData || pickData.picksRevealed) return null;
+    const parts: string[] = [];
+    if (user?.id !== matchup.user1.id && pickData.user1PickCount > 0) {
+      parts.push(`${matchup.user1.username} picked ${pickData.user1PickCount} game${pickData.user1PickCount === 1 ? "" : "s"}`);
+    }
+    if (matchup.user2 && user?.id !== matchup.user2.id && pickData.user2PickCount !== null && pickData.user2PickCount > 0) {
+      parts.push(`${matchup.user2.username} picked ${pickData.user2PickCount} game${pickData.user2PickCount === 1 ? "" : "s"}`);
+    }
+    return parts.length > 0 ? parts.join(", ") : null;
+  })();
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
@@ -132,16 +147,18 @@ export function MatchupDetailDialog({ matchup, open, onOpenChange }: MatchupDeta
             <h4 className="text-sm font-semibold mb-3">Game Picks</h4>
             {picksLoading ? (
               <p className="text-sm text-muted-foreground text-center py-4">Loading picks...</p>
-            ) : !pickData || pickData.games.length === 0 ? (
+            ) : !pickData || (pickData.user1PickCount === 0 && (pickData.user2PickCount ?? 0) === 0) ? (
               <p className="text-sm text-muted-foreground text-center py-4" data-testid="text-no-games">
-                No games scheduled for this week yet.
+                No picks made this week yet.
               </p>
             ) : (
               <div className="space-y-2">
                 {!pickData.picksRevealed && (
                   <p className="text-xs text-muted-foreground flex items-center gap-1 mb-2" data-testid="text-picks-hidden">
                     <EyeOff className="w-3 h-3" />
-                    Other players' picks are hidden until the week's first game kicks off.
+                    {hiddenOpponentNote
+                      ? `${hiddenOpponentNote} — hidden until the week's first game kicks off.`
+                      : "Other players' picks are hidden until the week's first game kicks off."}
                   </p>
                 )}
                 {pickData.games.map((game) => (

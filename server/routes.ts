@@ -1265,10 +1265,23 @@ export async function registerRoutes(
         return picks.find(p => p.gameId === gameId) ?? null;
       };
 
+      // Only include games at least one matchup player picked. Before reveal,
+      // only the requester's own picked games are listed (opponent-only picks
+      // would leak which games the opponent chose); counts convey the rest.
+      const visiblePickedGameIds = new Set<string>();
+      for (const p of user1Picks) {
+        if (picksRevealed || matchup.user1Id === requesterId) visiblePickedGameIds.add(p.gameId);
+      }
+      for (const p of user2Picks) {
+        if (picksRevealed || matchup.user2Id === requesterId) visiblePickedGameIds.add(p.gameId);
+      }
+
       res.json({
         picksRevealed,
+        user1PickCount: user1Picks.length,
+        user2PickCount: matchup.user2Id ? user2Picks.length : null,
         games: games
-          .slice()
+          .filter(game => visiblePickedGameIds.has(game.id))
           .sort((a, b) => new Date(a.gameTime).getTime() - new Date(b.gameTime).getTime())
           .map(game => ({
             ...game,
