@@ -37,8 +37,6 @@ export default function LeagueDetail() {
     enabled: !!id,
   });
 
-  const playoffsStarted = !!league && league.currentWeek >= 15 && league.status !== "open" && league.status !== "full";
-
   const { data: championData } = useQuery<{ champion: { id: string; username: string } | null }>({
     queryKey: ["/api/gambling-league/leagues", id, "champion"],
     queryFn: async () => {
@@ -115,7 +113,7 @@ export default function LeagueDetail() {
             </span>
           </div>
         </div>
-        {isMember && (league.status === "open" || league.status === "full") && league.creatorId === user?.id && league.members.length >= 2 && (
+        {isMember && (league.status === "open" || league.status === "full") && league.creatorId === user?.id && league.members.length >= league.capacity && (
           <Button
             size="sm"
             onClick={() => startSeasonMutation.mutate()}
@@ -192,12 +190,12 @@ export default function LeagueDetail() {
           )}
         </TabsContent>
         <TabsContent value="schedule" className="mt-6">
-          <ScheduleTab leagueId={league.id} currentWeek={league.currentWeek} />
+          <ScheduleTab leagueId={league.id} currentWeek={league.currentWeek} capacity={league.capacity} />
         </TabsContent>
         <TabsContent value="playoffs" className="mt-6">
           <PlayoffsTab
             leagueId={league.id}
-            playoffsStarted={playoffsStarted}
+            capacity={league.capacity}
             seasonStarted={league.status !== "open" && league.status !== "full"}
             onMatchupClick={(matchup) => {
               setSelectedMatchup(matchup);

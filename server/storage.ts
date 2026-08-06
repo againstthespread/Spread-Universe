@@ -109,6 +109,7 @@ import {
   type CfbTradeWithDetails,
 } from "@shared/schema";
 import { CFB_TEAM_SEED } from "./cfb-team-data";
+import { getPlayoffConfig, participantsInRound, roundForWeek, CHAMPIONSHIP_WEEK, type PlayoffConfig } from "@shared/playoff-config";
 import type { EspnCfbGame } from "./espn-cfb";
 import { db } from "./db";
 import { eq, and, gt, gte, sql, desc, asc, inArray, not } from "drizzle-orm";
@@ -1117,19 +1118,17 @@ export class DatabaseStorage implements IStorage {
     return matchup || undefined;
   }
 
-  static readonly GL_REGULAR_SEASON_WEEKS = 14;
-  static readonly GL_PLAYOFF_TEAMS = 6;
-
   /**
-   * Generates the 14-week regular-season schedule using the circle method,
-   * shuffles member order with Fisher-Yates, and sets the league to 'active'.
-   * Odd member counts get a weekly bye (user2Id = null).
+   * Generates the regular-season schedule (length set by the league's playoff
+   * config: 13 weeks for 18/20-capacity leagues, 14 otherwise) using the
+   * circle method, shuffles member order with Fisher-Yates, and sets the
+   * league to 'active'. Requires the league to be full. Odd member counts
+   * would get a weekly bye (user2Id = null), though capacities are all even.
    *
-   * Leagues with up to 14 members complete a full round robin within the 14
-   * weeks (opponents repeat once the cycle wraps). Leagues with 15+ members
-   * play a balanced partial schedule: 14 distinct rounds of the round robin,
-   * so everyone plays every week and faces each opponent at most once, but
-   * not every pairing occurs within the 14-week season.
+   * Leagues with member count <= regular-season weeks complete a full round
+   * robin (opponents repeat once the cycle wraps). Larger leagues play a
+   * balanced partial schedule: everyone plays every week and faces each
+   * opponent at most once, but not every pairing occurs.
    */
   async gl_startSeason(leagueId: string): Promise<void> {
     await db.transaction(async (tx) => {
@@ -1145,17 +1144,20 @@ export class DatabaseStorage implements IStorage {
       }
       const members = await tx.select().from(gamblingLeagueMembers)
         .where(eq(gamblingLeagueMembers.leagueId, leagueId));
-      if (members.length < 2) throw new Error("Need at least 2 members to start a season");
+      if (members.length !== league.capacity) {
+        throw new Error(`League must be full before starting the season (${members.length}/${league.capacity} members)`);
+      }
 
-      const values = DatabaseStorage.gl_buildSchedule(leagueId, members.map(m => m.userId));
+      const config = getPlayoffConfig(league.capacity);
+      const values = DatabaseStorage.gl_buildSchedule(leagueId, members.map(m => m.userId), config.regularSeasonWeeks);
       await tx.update(gamblingLeagueLeagues).set({ status: 'active' })
         .where(eq(gamblingLeagueLeagues.id, leagueId));
       await tx.insert(gamblingLeagueMatchups).values(values);
     });
   }
 
-  /** Builds the 14-week schedule (circle method, Fisher-Yates shuffled). */
-  private static gl_buildSchedule(leagueId: string, memberIds: string[]): InsertGamblingLeagueMatchup[] {
+  /** Builds the regular-season schedule (circle method, Fisher-Yates shuffled). */
+  private static gl_buildSchedule(leagueId: string, memberIds: string[], regularSeasonWeeks: number): InsertGamblingLeagueMatchup[] {
     const ids: (string | null)[] = [...memberIds];
     // Fisher-Yates shuffle
     for (let i = ids.length - 1; i > 0; i--) {
@@ -1169,7 +1171,7 @@ export class DatabaseStorage implements IStorage {
     const values: InsertGamblingLeagueMatchup[] = [];
     // Circle method: fix ids[0], rotate the rest
     const rotation = ids.slice(1);
-    for (let week = 1; week <= DatabaseStorage.GL_REGULAR_SEASON_WEEKS; week++) {
+    for (let week = 1; week <= regularSeasonWeeks; week++) {
       const round = (week - 1) % rounds;
       const arr = [ids[0], ...rotation.slice(rotation.length - round), ...rotation.slice(0, rotation.length - round)];
       for (let i = 0; i < n / 2; i++) {
@@ -1262,14 +1264,27 @@ export class DatabaseStorage implements IStorage {
     const matchups = await this.gl_getMatchupsByLeagueWeek(leagueId, week);
 
     // Only require graded games when this league actually has matchups to
-    // score this week (e.g. small leagues have empty playoff bye weeks)
+    // score this week (e.g. bye weeks have no matchups). Games are global per
+    // week, so only gate on games that members of THIS league actually picked
+    // — other leagues' games must not block finalization.
     if (matchups.some(m => !m.isComplete)) {
       const weekGames = await this.gl_getGamesByWeek(week);
-      if (weekGames.some(g => !g.isComplete)) {
-        throw new Error("All games for this week must have results before finalizing");
+      const incompleteIds = weekGames.filter(g => !g.isComplete).map(g => g.id);
+      if (incompleteIds.length > 0) {
+        const [pickedIncomplete] = await db.select({ count: sql<number>`count(*)` })
+          .from(gamblingLeaguePicks)
+          .where(and(
+            eq(gamblingLeaguePicks.leagueId, leagueId),
+            eq(gamblingLeaguePicks.week, week),
+            inArray(gamblingLeaguePicks.gameId, incompleteIds),
+          ));
+        if (Number(pickedIncomplete.count) > 0) {
+          throw new Error("All games for this week must have results before finalizing");
+        }
       }
     }
-    const seeds = week > DatabaseStorage.GL_REGULAR_SEASON_WEEKS
+    const config = await this.gl_getEffectiveConfig(leagueId, league.capacity);
+    const seeds = week > config.regularSeasonWeeks
       ? await this.gl_getPlayoffSeeds(leagueId)
       : null;
 
@@ -1296,7 +1311,7 @@ export class DatabaseStorage implements IStorage {
     }
 
     const nextWeek = week + 1;
-    const isChampionshipWeek = week === DatabaseStorage.GL_REGULAR_SEASON_WEEKS + 3;
+    const isChampionshipWeek = week === CHAMPIONSHIP_WEEK;
     const status = isChampionshipWeek ? 'completed' : league.status;
 
     await db.transaction(async (tx) => {
@@ -1317,10 +1332,8 @@ export class DatabaseStorage implements IStorage {
         }).where(eq(gamblingLeagueMatchups.id, s.id));
       }
 
-      if (!isChampionshipWeek) {
-        if (nextWeek === 15) await this.gl_generateQuarterfinals(leagueId, tx);
-        else if (nextWeek === 16) await this.gl_generateSemifinals(leagueId, tx);
-        else if (nextWeek === 17) await this.gl_generateChampionship(leagueId, tx);
+      if (!isChampionshipWeek && roundForWeek(config, nextWeek)) {
+        await this.gl_generatePlayoffRound(leagueId, config, nextWeek, tx);
       }
     });
 
@@ -1334,59 +1347,66 @@ export class DatabaseStorage implements IStorage {
     ));
   }
 
-  private async gl_generateQuarterfinals(leagueId: string, dbc: Pick<typeof db, 'select' | 'insert' | 'update'> = db): Promise<void> {
-    const seeds = await this.gl_getPlayoffSeeds(leagueId, dbc);
-    if (seeds.length < DatabaseStorage.GL_PLAYOFF_TEAMS) return;
-    const existing = await this.gl_getPlayoffMatchupsByWeek(leagueId, 15, dbc);
-    if (existing.length > 0) return;
-    await dbc.insert(gamblingLeagueMatchups).values([
-      { leagueId, week: 15, user1Id: seeds[2], user2Id: seeds[5], isPlayoff: true, playoffRound: "quarterfinal" },
-      { leagueId, week: 15, user1Id: seeds[3], user2Id: seeds[4], isPlayoff: true, playoffRound: "quarterfinal" },
-    ]);
+  /**
+   * Effective playoff config for a league. Normally derived from capacity,
+   * with one legacy guard: leagues scheduled before size-specific formats
+   * existed always have a 14-week regular season, so if an 18/20-capacity
+   * league has non-playoff matchups in week 14, it keeps the 14-week timeline
+   * and plays the 16-capacity structure (8 teams, QFs week 15).
+   */
+  private async gl_getEffectiveConfig(leagueId: string, capacity: number, dbc: Pick<typeof db, 'select' | 'insert' | 'update'> = db): Promise<PlayoffConfig> {
+    const config = getPlayoffConfig(capacity);
+    if (config.regularSeasonWeeks >= 14) return config;
+    const week14 = await this.gl_getPlayoffMatchupsByWeek(leagueId, 14, dbc);
+    if (week14.some(m => !m.isPlayoff)) return getPlayoffConfig(16);
+    return config;
   }
 
-  private async gl_generateSemifinals(leagueId: string, dbc: Pick<typeof db, 'select' | 'insert' | 'update'> = db): Promise<void> {
-    const seeds = await this.gl_getPlayoffSeeds(leagueId, dbc);
-    const existing = await this.gl_getPlayoffMatchupsByWeek(leagueId, 16, dbc);
+  /**
+   * Generates the playoff round scheduled for `week` per the league's config.
+   * Byes go to the top seeds; every round pairs the highest remaining seed
+   * against the lowest remaining seed. Idempotent: skips if the round's
+   * matchups already exist or the previous round hasn't fully completed.
+   */
+  private async gl_generatePlayoffRound(leagueId: string, config: PlayoffConfig, week: number, dbc: Pick<typeof db, 'select' | 'insert' | 'update'> = db): Promise<void> {
+    const found = roundForWeek(config, week);
+    if (!found) return;
+    const { round, index } = found;
+
+    const existing = (await this.gl_getPlayoffMatchupsByWeek(leagueId, week, dbc)).filter(m => m.isPlayoff);
     if (existing.length > 0) return;
 
-    if (seeds.length >= DatabaseStorage.GL_PLAYOFF_TEAMS) {
-      const qf = (await this.gl_getPlayoffMatchupsByWeek(leagueId, 15, dbc)).filter(m => m.isPlayoff && m.isComplete);
-      if (qf.length < 2) return;
-      const winners = qf.map(m => m.winnerId).filter((id): id is string => !!id);
-      winners.sort((a, b) => seeds.indexOf(a) - seeds.indexOf(b));
-      await dbc.insert(gamblingLeagueMatchups).values([
-        { leagueId, week: 16, user1Id: seeds[0], user2Id: winners[1] ?? null, isPlayoff: true, playoffRound: "semifinal" },
-        { leagueId, week: 16, user1Id: seeds[1], user2Id: winners[0] ?? null, isPlayoff: true, playoffRound: "semifinal" },
-      ]);
-    } else if (seeds.length >= 4) {
-      // 4-5 members: no quarterfinals, straight to semis (1v4, 2v3)
-      await dbc.insert(gamblingLeagueMatchups).values([
-        { leagueId, week: 16, user1Id: seeds[0], user2Id: seeds[3], isPlayoff: true, playoffRound: "semifinal" },
-        { leagueId, week: 16, user1Id: seeds[1], user2Id: seeds[2], isPlayoff: true, playoffRound: "semifinal" },
-      ]);
-    }
-    // 2-3 members: straight to the championship
-  }
-
-  private async gl_generateChampionship(leagueId: string, dbc: Pick<typeof db, 'select' | 'insert' | 'update'> = db): Promise<void> {
-    const existing = await this.gl_getPlayoffMatchupsByWeek(leagueId, 17, dbc);
-    if (existing.length > 0) return;
     const seeds = await this.gl_getPlayoffSeeds(leagueId, dbc);
+    if (seeds.length < config.playoffTeams) return;
 
-    if (seeds.length >= 4) {
-      const sf = (await this.gl_getPlayoffMatchupsByWeek(leagueId, 16, dbc)).filter(m => m.isPlayoff && m.isComplete);
-      if (sf.length < 2) return;
-      const winners = sf.map(m => m.winnerId).filter((id): id is string => !!id);
-      if (winners.length < 2) return;
-      await dbc.insert(gamblingLeagueMatchups).values([
-        { leagueId, week: 17, user1Id: winners[0], user2Id: winners[1], isPlayoff: true, playoffRound: "championship" },
-      ]);
-    } else if (seeds.length >= 2) {
-      await dbc.insert(gamblingLeagueMatchups).values([
-        { leagueId, week: 17, user1Id: seeds[0], user2Id: seeds[1], isPlayoff: true, playoffRound: "championship" },
-      ]);
+    let participants: string[];
+    if (index === 0) {
+      // First round: bye seeds sit out
+      participants = seeds.slice(config.byes, config.playoffTeams);
+    } else {
+      const prev = config.rounds[index - 1];
+      const prevMatchups = (await this.gl_getPlayoffMatchupsByWeek(leagueId, prev.week, dbc))
+        .filter(m => m.isPlayoff && m.isComplete);
+      const expectedPrevGames = participantsInRound(config, index - 1) / 2;
+      if (prevMatchups.length < expectedPrevGames) return;
+      const winners = prevMatchups.map(m => m.winnerId).filter((id): id is string => !!id);
+      if (winners.length < expectedPrevGames) return;
+      // Bye seeds re-enter in the second round only
+      participants = index === 1 ? [...seeds.slice(0, config.byes), ...winners] : winners;
     }
+
+    participants.sort((a, b) => seeds.indexOf(a) - seeds.indexOf(b));
+    const values: InsertGamblingLeagueMatchup[] = [];
+    for (let i = 0; i < participants.length / 2; i++) {
+      values.push({
+        leagueId, week,
+        user1Id: participants[i],
+        user2Id: participants[participants.length - 1 - i],
+        isPlayoff: true,
+        playoffRound: round.key,
+      });
+    }
+    if (values.length > 0) await dbc.insert(gamblingLeagueMatchups).values(values);
   }
 
   async gl_getChampion(leagueId: string): Promise<User | null> {

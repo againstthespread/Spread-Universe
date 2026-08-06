@@ -1139,8 +1139,8 @@ export async function registerRoutes(
       res.json({ ok: true });
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Failed to start season";
-      const known = ["Season has already started", "Need at least 2 members to start a season", "League not found"];
-      if (error instanceof Error && known.includes(error.message)) {
+      const known = ["Season has already started", "League not found"];
+      if (error instanceof Error && (known.includes(error.message) || error.message.startsWith("League must be full"))) {
         return res.status(400).json({ message: msg });
       }
       console.error("GL start season error:", error);

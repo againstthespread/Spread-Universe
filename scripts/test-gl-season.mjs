@@ -1,5 +1,32 @@
+// Simulates a full gambling-league season end-to-end for a given league size.
+// Usage: N=<8|10|12|16|18|20> node scripts/test-gl-season.mjs
+// Optional: SCHEDULE_ONLY=1 to stop after schedule assertions.
+// Covers: full-league start requirement, schedule generation (config-driven
+// regular-season length), weekly picks + scoring, finalize-week advancement,
+// size-specific playoff brackets (per shared/playoff-config.ts), and champion
+// selection. Clean up SIM% leagues/games and glsim% users afterward.
 const BASE = "http://localhost:5000";
-const N = parseInt(process.env.N || "4", 10);
+const N = parseInt(process.env.N || "8", 10);
+
+// Mirror of shared/playoff-config.ts (scripts can't import TS directly)
+const CONFIGS = {
+  8:  { regularSeasonWeeks: 14, playoffTeams: 4,  byes: 0, rounds: [["semifinal", 16], ["championship", 17]] },
+  10: { regularSeasonWeeks: 14, playoffTeams: 6,  byes: 2, rounds: [["quarterfinal", 15], ["semifinal", 16], ["championship", 17]] },
+  12: { regularSeasonWeeks: 14, playoffTeams: 6,  byes: 2, rounds: [["quarterfinal", 15], ["semifinal", 16], ["championship", 17]] },
+  16: { regularSeasonWeeks: 14, playoffTeams: 8,  byes: 0, rounds: [["quarterfinal", 15], ["semifinal", 16], ["championship", 17]] },
+  18: { regularSeasonWeeks: 13, playoffTeams: 12, byes: 4, rounds: [["playin", 14], ["quarterfinal", 15], ["semifinal", 16], ["championship", 17]] },
+  20: { regularSeasonWeeks: 13, playoffTeams: 12, byes: 4, rounds: [["playin", 14], ["quarterfinal", 15], ["semifinal", 16], ["championship", 17]] },
+};
+const config = CONFIGS[N];
+if (!config) { console.error(`N must be one of ${Object.keys(CONFIGS).join(", ")}`); process.exit(1); }
+function participantsInRound(idx) {
+  const { playoffTeams: t, byes: b } = config;
+  if (idx === 0) return t - b;
+  let count = b + (t - b) / 2;
+  for (let i = 1; i < idx; i++) count /= 2;
+  return count;
+}
+
 const users = Array.from({ length: N }, (_, i) => `glsim${N}u${i + 1}`);
 const cookies = {};
 
@@ -29,28 +56,39 @@ for (const u of users) {
   // re-login so the session reflects any server-side user caching
   await api(users[0], "POST", "/api/auth/login", { email: `${users[0]}@test.com`, password: "Passw0rd!23" });
 }
-const cr = await api(users[0], "POST", "/api/gambling-league/leagues", { name: `SIM${N} League`, capacity: "20" });
+const cr = await api(users[0], "POST", "/api/gambling-league/leagues", { name: `SIM${N} League`, capacity: String(N) });
 assert(cr.status === 200 || cr.status === 201, `create: ${cr.status} ${JSON.stringify(cr.data)}`);
 const leagueId = cr.data.id, joinCode = cr.data.joinCode;
+
+// Full-league start rule: starting before the league is full must fail
+{
+  const early = await api(users[0], "POST", `/api/gambling-league/leagues/${leagueId}/start`);
+  assert(early.status !== 200, `start should fail before league is full, got ${early.status}`);
+  console.log(`N=${N}: early start correctly rejected (${JSON.stringify(early.data?.message || early.data)})`);
+}
+
 for (const u of users.slice(1)) {
   const r = await api(u, "POST", "/api/gambling-league/leagues/join", { joinCode });
   assert(r.status === 200, `join ${u}: ${r.status} ${JSON.stringify(r.data)}`);
 }
-const st = await api(users[0], "POST", `/api/gambling-league/leagues/${leagueId}/start`);
-assert(st.status === 200, `start: ${st.status} ${JSON.stringify(st.data)}`);
+// Season auto-starts when the league fills; league must now be active
+{
+  const lg = (await api(users[0], "GET", `/api/gambling-league/leagues/${leagueId}`)).data;
+  assert(lg.status === "active", `league should auto-start when full, got status=${lg.status}`);
+}
 
-const expectedRegular = Math.ceil(N / 2); // incl. bye matchup for odd N
+const RS = config.regularSeasonWeeks;
+const expectedRegular = Math.ceil(N / 2);
 const wk1 = (await api(users[0], "GET", `/api/gambling-league/leagues/${leagueId}/matchups?week=1`)).data;
 assert(wk1.length === expectedRegular, `week1 matchups: ${wk1.length} != ${expectedRegular}`);
-if (N % 2 === 1) assert(wk1.some(m => !m.user2Id), "odd league should have a bye matchup");
 
-// Schedule fairness assertions across all 14 regular-season weeks:
-// - every member plays (or has a bye) every week
-// - N <= 14: full round robin — every unordered pairing occurs at least once
-// - N >= 15: balanced partial — every unordered pairing occurs at most once
+// Schedule assertions across all regular-season weeks:
+// - every member plays every week
+// - regular season is exactly RS weeks (no regular matchups beyond)
+// - N <= RS: full round robin; N > RS: no pairing repeats
 {
   const pairCounts = new Map();
-  for (let w = 1; w <= 14; w++) {
+  for (let w = 1; w <= RS; w++) {
     const ms = (await api(users[0], "GET", `/api/gambling-league/leagues/${leagueId}/matchups?week=${w}`)).data;
     const seen = new Set();
     for (const m of ms) {
@@ -63,10 +101,12 @@ if (N % 2 === 1) assert(wk1.some(m => !m.user2Id), "odd league should have a bye
     }
     assert(seen.size === N, `week ${w}: ${seen.size}/${N} members scheduled`);
   }
+  const beyond = (await api(users[0], "GET", `/api/gambling-league/leagues/${leagueId}/matchups?week=${RS + 1}`)).data;
+  assert(beyond.length === 0, `no matchups should exist in week ${RS + 1} at season start, got ${beyond.length}`);
   const memberIds = new Set();
   for (const key of pairCounts.keys()) key.split("|").forEach(id => memberIds.add(id));
   const allIds = Array.from(memberIds);
-  if (N <= 14) {
+  if (N <= RS) {
     for (let i = 0; i < allIds.length; i++) {
       for (let j = i + 1; j < allIds.length; j++) {
         const key = [allIds[i], allIds[j]].sort().join("|");
@@ -78,7 +118,7 @@ if (N % 2 === 1) assert(wk1.some(m => !m.user2Id), "odd league should have a bye
       assert(count <= 1, `partial schedule: pairing ${key} repeats (${count}x) for N=${N}`);
     }
   }
-  console.log(`N=${N}: schedule assertions passed`);
+  console.log(`N=${N}: schedule assertions passed (${RS}-week regular season)`);
 }
 
 if (process.env.SCHEDULE_ONLY === "1") {
@@ -113,42 +153,49 @@ async function runWeek(week, withGames) {
   return fin.data;
 }
 
-for (let w = 1; w <= 14; w++) await runWeek(w, true);
-console.log(`N=${N}: regular season done`);
+for (let w = 1; w <= RS; w++) await runWeek(w, true);
+console.log(`N=${N}: regular season done (weeks 1-${RS})`);
 
-// week 15: QF only for 6+
-const wk15 = (await api(users[0], "GET", `/api/gambling-league/leagues/${leagueId}/matchups?week=15`)).data;
-if (N >= 6) {
-  assert(wk15.length === 2 && wk15.every(m => m.playoffRound === "quarterfinal"), `QF wrong: ${JSON.stringify(wk15.map(m=>m.playoffRound))}`);
-  await runWeek(15, true);
-} else {
-  assert(wk15.length === 0, `expected no QF for N=${N}, got ${wk15.length}`);
-  await runWeek(15, false);
+// Seed order for verification (projected-seeds mirrors gl_getPlayoffSeeds:
+// wins desc -> total NPW desc -> userId asc; standings may tiebreak differently)
+const projected = (await api(users[0], "GET", `/api/gambling-league/leagues/${leagueId}/projected-seeds`)).data;
+const seedOrder = projected.map(e => e.userId);
+
+// Playoff weeks: RS+1 .. 17
+let lastResult = null;
+for (let week = RS + 1; week <= 17; week++) {
+  const roundEntry = config.rounds.find(([, w]) => w === week);
+  const ms = (await api(users[0], "GET", `/api/gambling-league/leagues/${leagueId}/matchups?week=${week}`)).data
+    .filter(m => m.isPlayoff);
+  if (!roundEntry) {
+    assert(ms.length === 0, `week ${week} should be an off week for N=${N}, got ${ms.length} matchups`);
+    lastResult = await runWeek(week, false);
+    continue;
+  }
+  const [roundKey] = roundEntry;
+  const idx = config.rounds.findIndex(([, w]) => w === week);
+  const expectedGames = participantsInRound(idx) / 2;
+  assert(ms.length === expectedGames, `week ${week} (${roundKey}): ${ms.length} games != ${expectedGames}`);
+  assert(ms.every(m => m.playoffRound === roundKey), `week ${week}: wrong round keys ${JSON.stringify(ms.map(m => m.playoffRound))}`);
+  assert(ms.every(m => m.user2Id), `week ${week}: playoff matchup missing opponent`);
+  if (idx === 0) {
+    // First round participants are seeds byes+1..playoffTeams paired high vs low
+    const expectedPairs = new Set();
+    for (let i = 0; i < expectedGames; i++) {
+      const hi = seedOrder[config.byes + i];
+      const lo = seedOrder[config.playoffTeams - 1 - i];
+      expectedPairs.add([hi, lo].sort().join("|"));
+    }
+    for (const m of ms) {
+      const key = [m.user1Id, m.user2Id].sort().join("|");
+      assert(expectedPairs.has(key), `week ${week}: unexpected pairing ${key}`);
+    }
+    console.log(`N=${N}: ${roundKey} pairings match standings-based seeds`);
+  }
+  lastResult = await runWeek(week, true);
 }
-
-// week 16: semis for 4+
-const wk16 = (await api(users[0], "GET", `/api/gambling-league/leagues/${leagueId}/matchups?week=16`)).data;
-if (N >= 4) {
-  assert(wk16.length === 2 && wk16.every(m => m.playoffRound === "semifinal"), `semis wrong: ${JSON.stringify(wk16)}`);
-  await runWeek(16, true);
-} else {
-  assert(wk16.length === 0, `expected no semis for N=${N}, got ${wk16.length}`);
-  await runWeek(16, false);
-}
-
-// week 17: championship for all
-const wk17 = (await api(users[0], "GET", `/api/gambling-league/leagues/${leagueId}/matchups?week=17`)).data;
-assert(wk17.length === 1 && wk17[0].playoffRound === "championship", `champ wrong: ${JSON.stringify(wk17)}`);
-const r17 = await runWeek(17, true);
-assert(r17.status === "completed", `should complete, got ${r17.status}`);
+assert(lastResult.status === "completed", `should complete after week 17, got ${lastResult.status}`);
 
 const champ = (await api(users[0], "GET", `/api/gambling-league/leagues/${leagueId}/champion`)).data;
 assert(champ.champion?.username, `no champion: ${JSON.stringify(champ)}`);
 console.log(`N=${N} CHAMPION: ${champ.champion.username} — ALL CHECKS PASSED`);
-
-// Usage: pre-register the admin user glsim<N>u1, set is_admin=true in the users
-// table, then run: N=<members> node scripts/test-gl-season.mjs
-// Covers: schedule generation (byes for odd N), weekly picks + scoring,
-// finalize-week advancement, playoff paths (2-3 straight to championship,
-// 4-5 to semifinals, 6+ quarterfinals), and champion selection.
-// Clean up SIM% leagues/games and glsim% users afterward.

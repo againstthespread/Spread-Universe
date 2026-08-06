@@ -4,7 +4,7 @@ description: Design rules for league platforms (CFB Conferences etc.) so results
 ---
 
 - Lock lineup edits for a week as soon as any of that week's synced games is non-`scheduled`. **Why:** the admin workflow is "sync final scores, then finalize" — without the lock, users can set lineups of teams that already won between sync and finalize. **How to apply:** check the week's games in the set-lineup storage method, not just past-week/completed-matchup guards.
-- Playoff bracket generation must handle every allowed league size, not just the full bracket. CFB leagues allow 2-8 members but the standard bracket needs 6. Fallbacks: 4-5 members → straight to semis (1v4, 2v3); 2-3 members → top-2 championship at the final week. Without a fallback, small leagues dead-end with no champion.
+- Playoff bracket generation must cover every league size that can actually start a season. Two valid designs: (a) allow partial leagues and provide fallback brackets for small sizes (CFB: 4-5 members → straight semis, 2-3 → top-2 championship), or (b) require the league to be full before starting and key a size-specific format off capacity (gambling leagues: shared capacity→format config drives schedule length, byes, and rounds on both server and client so they can't disagree). Either way, without full coverage small/odd leagues dead-end with no champion.
 - Multi-step roster mutations (free-agent drop+add, trade roster swaps) must be wrapped in `db.transaction` — unique constraints catch races but leave partial state (e.g. 6-team roster) if steps commit separately.
 - Avoid `arr.sort(() => Math.random()-0.5)` for draft-order shuffles — it's biased; use Fisher-Yates.
 

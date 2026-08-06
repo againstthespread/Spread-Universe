@@ -7,20 +7,22 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { MatchupDetailDialog } from "@/components/gambling-league/matchup-detail-dialog";
 import { ArrowLeft, ArrowRight, Swords } from "lucide-react";
 import type { GamblingLeagueMatchupWithUsers } from "@shared/schema";
+import { getPlayoffConfig, roundForWeek } from "@shared/playoff-config";
 
 interface ScheduleTabProps {
   leagueId: string;
   currentWeek: number;
+  capacity: number;
 }
 
-const roundLabel = (round: string | null) =>
-  round === "championship" ? "Championship" : round === "semifinal" ? "Semifinals" : "Quarterfinals";
-
-export function ScheduleTab({ leagueId, currentWeek }: ScheduleTabProps) {
+export function ScheduleTab({ leagueId, currentWeek, capacity }: ScheduleTabProps) {
+  const config = getPlayoffConfig(capacity);
+  const playoffStartWeek = config.rounds[0].week;
+  const roundLabelForWeek = (week: number) => roundForWeek(config, week)?.round.label ?? null;
   const currentDisplayWeek = Math.min(currentWeek, 17);
   // Regular season is fully scheduled at season start; playoff weeks become
   // browsable once the league reaches them.
-  const maxWeek = currentWeek >= 15 ? 17 : 14;
+  const maxWeek = currentWeek >= playoffStartWeek ? 17 : config.regularSeasonWeeks;
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
   const [selectedMatchup, setSelectedMatchup] = useState<GamblingLeagueMatchupWithUsers | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -43,7 +45,7 @@ export function ScheduleTab({ leagueId, currentWeek }: ScheduleTabProps) {
             <CardTitle className="flex items-center gap-2 text-lg">
               <Swords className="w-5 h-5" />
               {matchups[0]?.isPlayoff
-                ? `${roundLabel(matchups[0].playoffRound)} — Week ${displayWeek}`
+                ? `${roundLabelForWeek(displayWeek) ?? "Playoffs"} — Week ${displayWeek}`
                 : `Week ${displayWeek} Matchups`}
               {displayWeek > currentWeek && (
                 <Badge variant="outline" data-testid="badge-upcoming-week">Upcoming</Badge>
@@ -69,7 +71,7 @@ export function ScheduleTab({ leagueId, currentWeek }: ScheduleTabProps) {
                 <SelectContent>
                   {Array.from({ length: maxWeek }, (_, i) => i + 1).map((w) => (
                     <SelectItem key={w} value={String(w)} data-testid={`option-week-${w}`}>
-                      {w >= 15 ? `Week ${w} (${w === 17 ? "Championship" : w === 16 ? "Semifinals" : "Quarterfinals"})` : `Week ${w}`}
+                      {roundLabelForWeek(w) && w > config.regularSeasonWeeks ? `Week ${w} (${roundLabelForWeek(w)})` : `Week ${w}`}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -91,8 +93,10 @@ export function ScheduleTab({ leagueId, currentWeek }: ScheduleTabProps) {
             <p className="text-sm text-muted-foreground text-center py-6">Loading matchups...</p>
           ) : matchups.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-6" data-testid="text-no-matchups">
-              {displayWeek >= 15
-                ? `${displayWeek === 17 ? "Championship" : displayWeek === 16 ? "Semifinals" : "Quarterfinals"} bracket to be determined — matchups are set once the previous round finishes.`
+              {displayWeek > config.regularSeasonWeeks
+                ? roundLabelForWeek(displayWeek)
+                  ? `${roundLabelForWeek(displayWeek)} bracket to be determined — matchups are set once the previous round finishes.`
+                  : `Week ${displayWeek} is an off week for this league — playoffs begin week ${playoffStartWeek}.`
                 : `No matchups for week ${displayWeek}.`}
             </p>
           ) : (
