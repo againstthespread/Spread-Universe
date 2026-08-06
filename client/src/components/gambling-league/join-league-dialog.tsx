@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -9,30 +10,28 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
-import { Users } from "lucide-react";
-import type { GamblingLeagueLeague } from "@shared/schema";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { LogIn } from "lucide-react";
 
-interface JoinLeagueDialogProps {
-  league: GamblingLeagueLeague | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}
-
-export function JoinLeagueDialog({ league, open, onOpenChange }: JoinLeagueDialogProps) {
+export function JoinLeagueDialog() {
+  const [open, setOpen] = useState(false);
+  const [joinCode, setJoinCode] = useState("");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const joinMutation = useMutation({
     mutationFn: async () => {
-      if (!league) return;
-      return await apiRequest("POST", `/api/gambling-league/leagues/${league.id}/join`);
+      return await apiRequest("POST", "/api/gambling-league/leagues/join", {
+        joinCode: joinCode.trim().toUpperCase(),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/gambling-league/my-leagues"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/gambling-league/leagues"] });
-      onOpenChange(false);
+      setOpen(false);
+      setJoinCode("");
       toast({
         title: "Success",
         description: "Joined league successfully!",
@@ -47,44 +46,55 @@ export function JoinLeagueDialog({ league, open, onOpenChange }: JoinLeagueDialo
     },
   });
 
-  if (!league) return null;
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!joinCode.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter a join code",
+        variant: "destructive",
+      });
+      return;
+    }
+    joinMutation.mutate();
+  };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" data-testid="button-join-league">
+          <LogIn className="w-4 h-4 mr-2" />
+          Join League
+        </Button>
+      </DialogTrigger>
       <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Join League</DialogTitle>
-          <DialogDescription>
-            Join "{league.name}" to compete against other members.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="py-4 space-y-4">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
-              <Users className="w-4 h-4 text-muted-foreground" />
-              <span className="text-sm">League Size</span>
-            </div>
-            <Badge variant="secondary">{league.capacity} members</Badge>
+        <form onSubmit={handleSubmit}>
+          <DialogHeader>
+            <DialogTitle>Join League</DialogTitle>
+            <DialogDescription>
+              Enter the invite code you received from the league creator.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-2">
+            <Label htmlFor="join-code">Invite Code</Label>
+            <Input
+              id="join-code"
+              value={joinCode}
+              onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+              placeholder="e.g. AB3CD9"
+              maxLength={8}
+              data-testid="input-join-code"
+            />
           </div>
-          <div className="flex items-center justify-between gap-4">
-            <span className="text-sm text-muted-foreground">Status</span>
-            <Badge variant={league.status === 'open' ? 'default' : 'secondary'}>
-              {league.status}
-            </Badge>
-          </div>
-          <div className="flex items-center justify-between gap-4">
-            <span className="text-sm text-muted-foreground">Current Week</span>
-            <span className="text-sm font-medium">Week {league.currentWeek}</span>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={() => joinMutation.mutate()} disabled={joinMutation.isPending} data-testid="button-confirm-join">
-            {joinMutation.isPending ? "Joining..." : "Join League"}
-          </Button>
-        </DialogFooter>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={joinMutation.isPending} data-testid="button-confirm-join">
+              {joinMutation.isPending ? "Joining..." : "Join League"}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

@@ -315,6 +315,7 @@ export const gamblingLeagueLeagues = pgTable("gambling_league_leagues", {
   creatorId: varchar("creator_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
   status: varchar("status", { length: 20 }).notNull().default('open'),
   currentWeek: integer("current_week").default(1).notNull(),
+  joinCode: varchar("join_code", { length: 8 }).notNull().unique(),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -373,6 +374,7 @@ export const insertGamblingLeagueSchema = createInsertSchema(gamblingLeagueLeagu
   creatorId: true,
   status: true,
   currentWeek: true,
+  joinCode: true,
   createdAt: true,
 }).extend({
   capacity: z.enum(['8', '10', '12', '16', '18', '20']).transform(val => parseInt(val)),

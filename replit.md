@@ -116,6 +116,7 @@ The `shared/` directory contains:
 
 **Gambling League (`/api/gambling-league/`):**
 - Leagues, membership, games, picks, matchups, standings
+- Invite-only: leagues have unique 8-char join codes; `POST /leagues/join` with `joinCode` (no public league list)
 
 **Postseason ATS (`/api/postseason/`):**
 - Playoff games by round, picks, leaderboard, pick history
@@ -235,7 +236,7 @@ The application follows documented design guidelines in `design_guidelines.md`:
   1. **CrowdLine** - NFL score predictions with crowd-sourced spreads and leaderboard
   2. **March Madness ATS** - NCAA tournament bracket picks with escalating point values
   3. **FantasyStream** - Live NFL play-by-play viewer with filtering
-  4. **Gambling League** - Create/join betting leagues with head-to-head matchups
+  4. **Gambling League** - Create/join invite-only betting leagues (join codes) with head-to-head matchups
   5. **Postseason ATS** - NFL playoff picks with history tracking
   6. **Football Weather** - Weather-based fantasy implications for games
 

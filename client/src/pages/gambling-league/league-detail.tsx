@@ -10,7 +10,8 @@ import { StandingsTab } from "@/components/gambling-league/standings-tab";
 import { PicksTab } from "@/components/gambling-league/picks-tab";
 import { ScheduleTab } from "@/components/gambling-league/schedule-tab";
 import { MatchupDetailDialog } from "@/components/gambling-league/matchup-detail-dialog";
-import { ArrowLeft, Trophy, Calendar, Target, Users, Swords } from "lucide-react";
+import { ArrowLeft, Trophy, Calendar, Target, Users, Swords, Copy } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import type { GamblingLeagueLeague, GamblingLeagueMember, GamblingLeagueMatchupWithUsers, User } from "@shared/schema";
 
 type LeagueWithMembers = GamblingLeagueLeague & {
@@ -20,6 +21,7 @@ type LeagueWithMembers = GamblingLeagueLeague & {
 export default function LeagueDetail() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
+  const { toast } = useToast();
   const [selectedMatchup, setSelectedMatchup] = useState<GamblingLeagueMatchupWithUsers | null>(null);
   const [matchupDialogOpen, setMatchupDialogOpen] = useState(false);
 
@@ -97,6 +99,20 @@ export default function LeagueDetail() {
             </span>
           </div>
         </div>
+        {isMember && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              navigator.clipboard.writeText(league.joinCode);
+              toast({ title: "Copied!", description: "Invite code copied to clipboard." });
+            }}
+            data-testid="button-copy-join-code"
+          >
+            <Copy className="w-4 h-4 mr-2" />
+            Invite Code: <span className="font-mono ml-1">{league.joinCode}</span>
+          </Button>
+        )}
       </div>
 
       {matchups.length > 0 && (

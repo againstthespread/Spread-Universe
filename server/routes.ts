@@ -1066,17 +1066,6 @@ export async function registerRoutes(
   // Gambling League Routes
   // ========================
 
-  app.get("/api/gambling-league/leagues", async (_req, res) => {
-    try {
-      const leagues = await storage.gl_getLeagues();
-      const openLeagues = leagues.filter(l => l.status === 'open');
-      res.json(openLeagues);
-    } catch (error) {
-      console.error("GL get leagues error:", error);
-      res.status(500).json({ message: "Failed to get leagues" });
-    }
-  });
-
   app.post("/api/gambling-league/leagues", requireAuth, async (req, res) => {
     try {
       const result = insertGamblingLeagueSchema.safeParse(req.body);
@@ -1105,11 +1094,15 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/gambling-league/leagues/:id/join", requireAuth, async (req, res) => {
+  app.post("/api/gambling-league/leagues/join", requireAuth, async (req, res) => {
     try {
-      const league = await storage.gl_getLeague(req.params.id);
+      const { joinCode } = req.body;
+      if (!joinCode || typeof joinCode !== "string") {
+        return res.status(400).json({ message: "joinCode required" });
+      }
+      const league = await storage.gl_getLeagueByJoinCode(joinCode.trim());
       if (!league) {
-        return res.status(404).json({ message: "League not found" });
+        return res.status(404).json({ message: "No league found with that code" });
       }
       if (league.status !== 'open') {
         return res.status(400).json({ message: "League is not accepting new members" });

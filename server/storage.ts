@@ -195,6 +195,7 @@ export interface IStorage {
   // Gambling League methods
   gl_getLeagues(): Promise<GamblingLeagueLeague[]>;
   gl_getLeague(id: string): Promise<GamblingLeagueLeague | undefined>;
+  gl_getLeagueByJoinCode(code: string): Promise<GamblingLeagueLeague | undefined>;
   gl_createLeague(league: InsertGamblingLeagueLeague, creatorId: string): Promise<GamblingLeagueLeague>;
   gl_joinLeague(leagueId: string, userId: string): Promise<GamblingLeagueMember>;
   gl_getLeagueMembers(leagueId: string): Promise<(GamblingLeagueMember & { user: User })[]>;
@@ -868,8 +869,21 @@ export class DatabaseStorage implements IStorage {
     return league || undefined;
   }
 
+  async gl_getLeagueByJoinCode(code: string): Promise<GamblingLeagueLeague | undefined> {
+    const [league] = await db.select().from(gamblingLeagueLeagues).where(eq(gamblingLeagueLeagues.joinCode, code.toUpperCase()));
+    return league || undefined;
+  }
+
   async gl_createLeague(league: InsertGamblingLeagueLeague, creatorId: string): Promise<GamblingLeagueLeague> {
-    const [newLeague] = await db.insert(gamblingLeagueLeagues).values({ ...league, creatorId }).returning();
+    let joinCode = this.generateJoinCode();
+    let attempts = 0;
+    while (attempts < 10) {
+      const existing = await this.gl_getLeagueByJoinCode(joinCode);
+      if (!existing) break;
+      joinCode = this.generateJoinCode();
+      attempts++;
+    }
+    const [newLeague] = await db.insert(gamblingLeagueLeagues).values({ ...league, creatorId, joinCode }).returning();
     await db.insert(gamblingLeagueMembers).values({ leagueId: newLeague.id, userId: creatorId });
     return newLeague;
   }
