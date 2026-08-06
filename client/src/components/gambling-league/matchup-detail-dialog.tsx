@@ -1,7 +1,9 @@
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/lib/auth-context";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Trophy, Users, Target } from "lucide-react";
-import type { GamblingLeagueMatchupWithUsers } from "@shared/schema";
+import { Trophy, Users, Target, EyeOff, Check, X, Minus, Clock } from "lucide-react";
+import type { GamblingLeagueMatchupWithUsers, GamblingLeagueGame, GamblingLeaguePick } from "@shared/schema";
 
 interface MatchupDetailDialogProps {
   matchup: GamblingLeagueMatchupWithUsers | null;
@@ -9,7 +11,62 @@ interface MatchupDetailDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+type MatchupPicksResponse = {
+  picksRevealed: boolean;
+  games: (GamblingLeagueGame & {
+    user1Pick: GamblingLeaguePick | null;
+    user2Pick: GamblingLeaguePick | null;
+  })[];
+};
+
+function PickCell({ pick, game, revealed }: { pick: GamblingLeaguePick | null; game: GamblingLeagueGame; revealed: boolean }) {
+  if (!revealed && !pick) {
+    return (
+      <span className="text-xs text-muted-foreground flex items-center gap-1" data-testid="pick-hidden">
+        <EyeOff className="w-3 h-3" /> Hidden
+      </span>
+    );
+  }
+  if (!pick) {
+    return <span className="text-xs text-muted-foreground italic">No pick</span>;
+  }
+  const team = pick.pickedTeam === "home" ? game.homeTeam : game.awayTeam;
+  let icon = <Clock className="w-3 h-3 text-muted-foreground" />;
+  let cls = "text-muted-foreground";
+  if (pick.isPush) {
+    icon = <Minus className="w-3 h-3 text-yellow-600 dark:text-yellow-400" />;
+    cls = "text-yellow-600 dark:text-yellow-400";
+  } else if (pick.isCorrect === true) {
+    icon = <Check className="w-3 h-3 text-green-600 dark:text-green-400" />;
+    cls = "text-green-600 dark:text-green-400 font-medium";
+  } else if (pick.isCorrect === false) {
+    icon = <X className="w-3 h-3 text-red-600 dark:text-red-400" />;
+    cls = "text-red-600 dark:text-red-400";
+  }
+  return (
+    <span className={`text-xs flex items-center gap-1 ${cls}`}>
+      {icon} {team}
+    </span>
+  );
+}
+
 export function MatchupDetailDialog({ matchup, open, onOpenChange }: MatchupDetailDialogProps) {
+  const { user } = useAuth();
+  const { data: pickData, isLoading: picksLoading } = useQuery<MatchupPicksResponse>({
+    // Key includes the viewer's user id: the response is personalized (own picks
+    // are visible pre-kickoff), so cached data must never be shared across accounts.
+    queryKey: ["/api/gambling-league/matchups", matchup?.id, "picks", user?.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/gambling-league/matchups/${matchup!.id}/picks`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    enabled: open && !!matchup && !!user,
+    // Refetch each time the dialog opens so hidden picks reveal after kickoff/grading.
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
+
   if (!matchup) return null;
 
   return (
@@ -62,6 +119,55 @@ export function MatchupDetailDialog({ matchup, open, onOpenChange }: MatchupDeta
                 <div className="text-muted-foreground italic">BYE</div>
               )}
             </div>
+          </div>
+          <div className="pt-4 border-t">
+            <h4 className="text-sm font-semibold mb-3">Game Picks</h4>
+            {picksLoading ? (
+              <p className="text-sm text-muted-foreground text-center py-4">Loading picks...</p>
+            ) : !pickData || pickData.games.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4" data-testid="text-no-games">
+                No games scheduled for this week yet.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {!pickData.picksRevealed && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1 mb-2" data-testid="text-picks-hidden">
+                    <EyeOff className="w-3 h-3" />
+                    Other players' picks are hidden until the week's first game kicks off.
+                  </p>
+                )}
+                {pickData.games.map((game) => (
+                  <div key={game.id} className="p-2 rounded-md border space-y-1.5" data-testid={`matchup-game-${game.id}`}>
+                    <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                      <span>
+                        {game.awayTeam} @ {game.homeTeam} ({game.homeTeam} {parseFloat(game.spread) > 0 ? "+" : ""}{game.spread})
+                      </span>
+                      {game.isComplete ? (
+                        <Badge variant="secondary" className="text-xs">{game.awayScore} - {game.homeScore}</Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-xs">Upcoming</Badge>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5">{matchup.user1.username}</div>
+                        <PickCell pick={game.user1Pick} game={game} revealed={pickData.picksRevealed || user?.id === matchup.user1.id} />
+                      </div>
+                      <div>
+                        {matchup.user2 ? (
+                          <>
+                            <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5">{matchup.user2.username}</div>
+                            <PickCell pick={game.user2Pick} game={game} revealed={pickData.picksRevealed || user?.id === matchup.user2.id} />
+                          </>
+                        ) : (
+                          <div className="text-xs text-muted-foreground italic mt-3">BYE</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div className="pt-4 border-t space-y-2">
             <div className="flex items-center justify-between gap-4 text-sm">

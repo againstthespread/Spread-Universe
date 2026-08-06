@@ -1232,6 +1232,56 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/gambling-league/matchups/:matchupId/picks", requireAuth, async (req, res) => {
+    try {
+      const matchup = await storage.gl_getMatchupById(req.params.matchupId);
+      if (!matchup) return res.status(404).json({ message: "Matchup not found" });
+
+      const members = await storage.gl_getLeagueMembers(matchup.leagueId);
+      const requesterId = req.session.userId!;
+      if (!members.some(m => m.userId === requesterId)) {
+        return res.status(403).json({ message: "You must be a league member to view matchup picks" });
+      }
+
+      const games = await storage.gl_getGamesByWeek(matchup.week);
+      const [user1Picks, user2Picks] = await Promise.all([
+        storage.gl_getPicksByUserLeagueWeek(matchup.user1Id, matchup.leagueId, matchup.week),
+        matchup.user2Id
+          ? storage.gl_getPicksByUserLeagueWeek(matchup.user2Id, matchup.leagueId, matchup.week)
+          : Promise.resolve([]),
+      ]);
+
+      // Hide other users' picks until the week's first game kicks off
+      // (or until games start being graded / the matchup is finalized)
+      const now = Date.now();
+      const firstKickoff = games.length > 0 ? Math.min(...games.map(g => new Date(g.gameTime).getTime())) : null;
+      const picksRevealed =
+        matchup.isComplete ||
+        games.some(g => g.isComplete) ||
+        (firstKickoff !== null && now >= firstKickoff);
+
+      const pickFor = (picks: typeof user1Picks, userId: string, gameId: string) => {
+        if (!picksRevealed && userId !== requesterId) return null;
+        return picks.find(p => p.gameId === gameId) ?? null;
+      };
+
+      res.json({
+        picksRevealed,
+        games: games
+          .slice()
+          .sort((a, b) => new Date(a.gameTime).getTime() - new Date(b.gameTime).getTime())
+          .map(game => ({
+            ...game,
+            user1Pick: pickFor(user1Picks, matchup.user1Id, game.id),
+            user2Pick: matchup.user2Id ? pickFor(user2Picks, matchup.user2Id, game.id) : null,
+          })),
+      });
+    } catch (error) {
+      console.error("GL get matchup picks error:", error);
+      res.status(500).json({ message: "Failed to get matchup picks" });
+    }
+  });
+
   app.get("/api/gambling-league/weeks/:week/games/:leagueId", requireAuth, async (req, res) => {
     try {
       const games = await storage.gl_getGamesWithPicks(

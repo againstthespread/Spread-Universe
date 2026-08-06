@@ -216,6 +216,7 @@ export interface IStorage {
   gl_updatePick(id: string, data: Partial<GamblingLeaguePick>): Promise<GamblingLeaguePick | undefined>;
   gl_deletePick(userId: string, leagueId: string, gameId: string): Promise<void>;
   
+  gl_getMatchupById(id: string): Promise<GamblingLeagueMatchup | undefined>;
   gl_getMatchups(leagueId: string): Promise<GamblingLeagueMatchupWithUsers[]>;
   gl_getMatchupsByLeagueWeek(leagueId: string, week: number): Promise<GamblingLeagueMatchupWithUsers[]>;
   gl_createMatchup(matchup: InsertGamblingLeagueMatchup): Promise<GamblingLeagueMatchup>;
@@ -1062,6 +1063,11 @@ export class DatabaseStorage implements IStorage {
         eq(gamblingLeaguePicks.gameId, gameId)
       )
     );
+  }
+
+  async gl_getMatchupById(id: string): Promise<GamblingLeagueMatchup | undefined> {
+    const [matchup] = await db.select().from(gamblingLeagueMatchups).where(eq(gamblingLeagueMatchups.id, id));
+    return matchup;
   }
 
   async gl_getMatchups(leagueId: string): Promise<GamblingLeagueMatchupWithUsers[]> {
