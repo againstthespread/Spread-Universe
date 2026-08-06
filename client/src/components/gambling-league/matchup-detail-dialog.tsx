@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Trophy, Users, Target, EyeOff, Check, X, Minus, Clock } from "lucide-react";
+import { Trophy, Users, Target, EyeOff, Check, X, Minus, Clock, StickyNote } from "lucide-react";
 import type { GamblingLeagueMatchupWithUsers, GamblingLeagueGame, GamblingLeaguePick } from "@shared/schema";
 
 interface MatchupDetailDialogProps {
@@ -44,9 +44,17 @@ function PickCell({ pick, game, revealed }: { pick: GamblingLeaguePick | null; g
     cls = "text-red-600 dark:text-red-400";
   }
   return (
-    <span className={`text-xs flex items-center gap-1 ${cls}`}>
-      {icon} {team}
-    </span>
+    <div className="space-y-1">
+      <span className={`text-xs flex items-center gap-1 ${cls}`}>
+        {icon} {team}
+      </span>
+      {pick.note && (
+        <p className="text-xs text-muted-foreground italic flex items-start gap-1" data-testid={`pick-note-${pick.id}`}>
+          <StickyNote className="w-3 h-3 mt-0.5 shrink-0" />
+          <span className="break-words">{pick.note}</span>
+        </p>
+      )}
+    </div>
   );
 }
 
