@@ -375,7 +375,7 @@ export const insertGamblingLeagueSchema = createInsertSchema(gamblingLeagueLeagu
   currentWeek: true,
   createdAt: true,
 }).extend({
-  capacity: z.enum(['8', '10', '12', '16']).transform(val => parseInt(val)),
+  capacity: z.enum(['8', '10', '12', '16', '18', '20']).transform(val => parseInt(val)),
 });
 
 export const insertGamblingLeagueMemberSchema = createInsertSchema(gamblingLeagueMembers).omit({

@@ -105,6 +105,8 @@ export function CreateLeagueDialog() {
                   <SelectItem value="10">10 members</SelectItem>
                   <SelectItem value="12">12 members</SelectItem>
                   <SelectItem value="16">16 members</SelectItem>
+                  <SelectItem value="18">18 members</SelectItem>
+                  <SelectItem value="20">20 members</SelectItem>
                 </SelectContent>
               </Select>
             </div>
