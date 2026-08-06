@@ -861,7 +861,7 @@ export async function registerRoutes(
         let timeRemaining = displayClock;
         if (status === 'pre') {
           const gameDate = new Date(event.date);
-          timeRemaining = gameDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+          timeRemaining = `${gameDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" })} ET`;
         } else if (status === 'post') {
           timeRemaining = "--";
         }

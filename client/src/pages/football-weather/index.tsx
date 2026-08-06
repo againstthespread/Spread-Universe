@@ -1,3 +1,4 @@
+import { formatInEastern } from "@/lib/timezone";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -9,7 +10,6 @@ import { StatsSummary } from "@/components/football-weather/stats-summary";
 import type { FootballWeatherGamesResponse, FootballWeatherFantasyImplication } from "@shared/schema";
 import { Cloud, RefreshCw, ArrowLeft } from "lucide-react";
 import { useState } from "react";
-import { format } from "date-fns";
 
 export default function FootballWeatherDashboard() {
   const [, navigate] = useLocation();
@@ -69,7 +69,7 @@ export default function FootballWeatherDashboard() {
             <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
               <CardTitle className="text-lg">Week {data.weekNumber} Summary</CardTitle>
               <span className="text-xs text-muted-foreground">
-                Last updated: {format(new Date(data.lastUpdated), "MMM d, h:mm a")}
+                Last updated: {formatInEastern(data.lastUpdated, "MMM d, h:mm a")} ET
               </span>
             </CardHeader>
             <CardContent>

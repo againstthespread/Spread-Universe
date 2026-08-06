@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
+import { formatInEastern } from "@/lib/timezone";
 import {
   Flag, ArrowLeft, Users, Copy, Trophy, Calendar, UserPlus,
   User, CheckCircle, ChevronUp, ChevronDown, Search, Loader2,
@@ -57,7 +58,7 @@ function CountdownTimer({ targetTime }: { targetTime: string | Date }) {
       <p className="text-4xl font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400" data-testid="text-countdown">
         {formatCountdown(timeLeft)}
       </p>
-      <p className="text-xs text-muted-foreground">{new Date(targetTime).toLocaleString()}</p>
+      <p className="text-xs text-muted-foreground">{formatInEastern(targetTime, "MMM d, yyyy, h:mm a")} ET</p>
     </div>
   );
 }
@@ -421,7 +422,7 @@ export default function GolfLeagueDetail({ params }: { params: { id: string } })
                       <Calendar className="w-4 h-4" /> Draft Time
                     </span>
                     <span className="font-medium text-right text-xs">
-                      {new Date(league.draftStartTime).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET
+                      {formatInEastern(league.draftStartTime, "MMM d, yyyy, h:mm a")} ET
                     </span>
                   </div>
                 )}

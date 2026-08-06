@@ -10,6 +10,7 @@ import { platforms } from "@shared/schema";
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 
+import { formatInEastern } from "@/lib/timezone";
 type NewsItem = {
   title: string;
   description: string;
@@ -22,12 +23,7 @@ type NewsItem = {
 function formatPubDate(dateStr: string) {
   if (!dateStr) return "";
   try {
-    return new Date(dateStr).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    });
+    return `${formatInEastern(new Date(dateStr), "MMM d, h:mm a")} ET`;
   } catch {
     return dateStr;
   }

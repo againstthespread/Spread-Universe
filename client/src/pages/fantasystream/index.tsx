@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 
+import { formatInEastern } from "@/lib/timezone";
 export default function FantasyStreamDashboard() {
   const { toast } = useToast();
   const [activeFilter, setActiveFilter] = useState<PlayFilterType>("all");
@@ -70,11 +71,7 @@ export default function FantasyStreamDashboard() {
   };
 
   const formatTime = (date: Date) => {
-    return date.toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    });
+    return `${formatInEastern(date, "h:mm a")} ET`;
   };
 
   return (

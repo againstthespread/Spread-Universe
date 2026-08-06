@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Lock, Clock, CheckCircle2, StickyNote, XCircle, Minus } from "lucide-react";
 import type { GamblingLeagueGameWithPick } from "@shared/schema";
 
+import { formatInEastern } from "@/lib/timezone";
 interface PicksTabProps {
   leagueId: string;
   currentWeek: number;
@@ -164,7 +165,7 @@ export function PicksTab({ leagueId, currentWeek }: PicksTabProps) {
         <CardContent>
           <p className="text-sm text-muted-foreground">
             {isLocked ? "Picks are locked for this week." : firstGameTime ? (
-              <>All picks must be submitted before {new Date(firstGameTime).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })}</>
+              <>All picks must be submitted before {formatInEastern(firstGameTime, "EEE, MMM d, h:mm a")} ET</>
             ) : "Waiting for games"}
           </p>
         </CardContent>

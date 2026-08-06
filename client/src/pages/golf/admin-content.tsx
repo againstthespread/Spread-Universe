@@ -15,6 +15,7 @@ import { z } from "zod";
 import { Plus, Trophy, Flag, Search, ChevronRight, ChevronDown, Users, Pencil, RefreshCw } from "lucide-react";
 import type { GolfTournament, GolfGolfer, GolfGolferScore } from "@shared/schema";
 
+import { formatInEastern, formatDateOnly } from "@/lib/timezone";
 type TournamentWithGolfers = GolfTournament & { golfers: GolfGolfer[] };
 
 const createTournamentSchema = z.object({
@@ -523,7 +524,7 @@ function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) 
             <div>
               <CardTitle className="text-base">{tournament.name}</CardTitle>
               <p className="text-xs text-muted-foreground">
-                {new Date(tournament.startDate).toLocaleDateString()} · {tournament.golfers.length} golfers
+                {formatDateOnly(tournament.startDate, "MMM d, yyyy")} · {tournament.golfers.length} golfers
               </p>
             </div>
           </div>

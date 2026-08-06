@@ -2,6 +2,7 @@ import { type FantasyStreamPlay } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 
+import { formatInEastern } from "@/lib/timezone";
 interface PlayCardProps {
   play: FantasyStreamPlay;
   isLatest?: boolean;
@@ -9,11 +10,7 @@ interface PlayCardProps {
 
 export function PlayCard({ play, isLatest = false }: PlayCardProps) {
   const formatTime = (timestamp: string) => {
-    return new Date(timestamp).toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    });
+    return `${formatInEastern(timestamp, "h:mm a")} ET`;
   };
 
   const getPlayTypeColor = (playType: string) => {

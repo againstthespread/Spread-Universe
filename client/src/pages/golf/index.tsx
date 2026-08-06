@@ -18,6 +18,7 @@ import { z } from "zod";
 import { Flag, Users, ChevronRight, Plus, LogIn, Trophy, Calendar } from "lucide-react";
 import type { GolfLeague, GolfTournament } from "@shared/schema";
 
+import { formatInEastern } from "@/lib/timezone";
 type GolfLeagueWithTournament = GolfLeague & { tournament: GolfTournament };
 
 
@@ -295,7 +296,7 @@ export default function GolfDashboard() {
                       {league.draftStartTime && (
                         <div className="flex items-center gap-2">
                           <Calendar className="w-4 h-4" />
-                          Draft: {new Date(league.draftStartTime).toLocaleDateString()}
+                          Draft: {formatInEastern(league.draftStartTime, "MMM d, yyyy")}
                         </div>
                       )}
                     </CardContent>

@@ -1,10 +1,10 @@
+import { formatInEastern } from "@/lib/timezone";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import type { FootballWeatherGame } from "@shared/schema";
 import { WeatherIcon } from "./weather-icon";
 import { StadiumBadge } from "./stadium-badge";
 import { FantasyBadge } from "./fantasy-badge";
 import { MapPin, Thermometer, Wind, Droplets } from "lucide-react";
-import { format } from "date-fns";
 
 interface GameCardProps {
   game: FootballWeatherGame;
@@ -21,7 +21,7 @@ export function GameCard({ game }: GameCardProps) {
           <FantasyBadge implication={fantasyImplication} />
         </div>
         <span className="text-xs text-muted-foreground">
-          {format(new Date(gameTime), "EEE, MMM d h:mm a")}
+          {formatInEastern(gameTime, "EEE, MMM d h:mm a")} ET
         </span>
       </CardHeader>
       <CardContent className="space-y-4">

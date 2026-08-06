@@ -12,6 +12,12 @@ export function formatInEastern(utcDate: string | Date, formatString: string): s
   return formatInTimeZone(utcDate, EASTERN_TZ, formatString);
 }
 
+// For date-only values stored as UTC midnight (e.g. tournament start dates):
+// formatting those in Eastern would shift back a calendar day, so format in UTC.
+export function formatDateOnly(utcDate: string | Date, formatString: string): string {
+  return formatInTimeZone(utcDate, 'UTC', formatString);
+}
+
 export function hasGameStarted(gameDate: string): boolean {
   const now = new Date();
   const gameTime = new Date(gameDate);
