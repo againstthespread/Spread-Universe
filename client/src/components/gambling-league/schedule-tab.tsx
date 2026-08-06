@@ -115,11 +115,13 @@ export function ScheduleTab({ leagueId, currentWeek, capacity }: ScheduleTabProp
                     <span className={matchup.winnerId === matchup.user1.id ? "font-bold text-green-600 dark:text-green-400" : ""}>
                       {matchup.user1.username}
                     </span>
+                    {matchup.user1Forfeit && <Badge variant="destructive" className="text-xs">FF</Badge>}
                     {matchup.isComplete && <Badge variant="secondary">{matchup.user1Npw ?? 0}</Badge>}
                   </div>
                   <span className="text-muted-foreground text-sm">vs</span>
                   <div className="flex items-center gap-2">
                     {matchup.isComplete && matchup.user2 && <Badge variant="secondary">{matchup.user2Npw ?? 0}</Badge>}
+                    {matchup.user2Forfeit && <Badge variant="destructive" className="text-xs">FF</Badge>}
                     <span className={matchup.winnerId === matchup.user2?.id ? "font-bold text-green-600 dark:text-green-400" : ""}>
                       {matchup.user2?.username || "BYE"}
                     </span>

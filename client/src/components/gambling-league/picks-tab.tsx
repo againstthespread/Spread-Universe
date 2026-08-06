@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Lock, Clock, CheckCircle2, StickyNote, XCircle, Minus } from "lucide-react";
+import { Lock, Clock, CheckCircle2, StickyNote, XCircle, Minus, AlertTriangle } from "lucide-react";
 import type { GamblingLeagueGameWithPick } from "@shared/schema";
 import { getPickLockTime, getMainSlateLockTime, isPickLocked } from "@shared/pick-lock";
 import { formatInEastern } from "@/lib/timezone";
@@ -38,6 +38,16 @@ export function PicksTab({ leagueId, currentWeek }: PicksTabProps) {
       return res.json();
     },
   });
+
+  const { data: weekSettings } = useQuery<{ week: number; minPicks: number; gameCount: number }>({
+    queryKey: ["/api/gambling-league/weeks", currentWeek, "settings"],
+    queryFn: async () => {
+      const res = await fetch(`/api/gambling-league/weeks/${currentWeek}/settings`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+  });
+  const minPicks = weekSettings?.minPicks ?? 0;
 
   // Tiered locking: Thu/Fri/Sat games lock 1 min before kickoff;
   // Sun/Mon games all lock at 12:59 PM ET Sunday (see shared/pick-lock).
@@ -92,6 +102,25 @@ export function PicksTab({ leagueId, currentWeek }: PicksTabProps) {
   }, [gamesKey]);
 
 
+  // Minimum-pick accounting. Picks on locked games are committed; open games
+  // reflect the current (unsubmitted) selections. The target mirrors the
+  // finalization rule exactly: the configured minimum, capped only by the
+  // week's total game count — locked games do NOT lower the requirement.
+  const lockedPickCount = useMemo(
+    () => games.filter(g => (gameLocked(g) || g.isComplete) && g.userPick).length,
+    [games, now]
+  );
+  const openGameIds = useMemo(
+    () => new Set(games.filter(g => !gameLocked(g) && !g.isComplete).map(g => g.id)),
+    [games, now]
+  );
+  const plannedOpenPickCount = Object.keys(picks).filter(id => openGameIds.has(id)).length;
+  const plannedTotal = lockedPickCount + plannedOpenPickCount;
+  const effectiveMin = Math.min(minPicks, games.length);
+  const belowMinimum = effectiveMin > 0 && plannedTotal < effectiveMin;
+  // Too many games already locked without a pick: the minimum can no longer be met
+  const minUnattainable = belowMinimum && lockedPickCount + openGameIds.size < effectiveMin;
+
   const submitMutation = useMutation({
     mutationFn: async () => {
       // Only submit picks for games that are still open — locked games would
@@ -128,6 +157,17 @@ export function PicksTab({ leagueId, currentWeek }: PicksTabProps) {
   const handleSubmit = () => {
     if (Object.keys(picks).length === 0 && clearedPicks.size === 0) {
       toast({ title: "No changes", description: "Make at least one pick", variant: "destructive" });
+      return;
+    }
+    // Block below-minimum submissions while the minimum is still attainable.
+    // If it's no longer attainable, let users submit what they can — the
+    // forfeit happens at finalization either way.
+    if (belowMinimum && !minUnattainable) {
+      toast({
+        title: "Minimum picks required",
+        description: `You must pick at least ${effectiveMin} game${effectiveMin === 1 ? "" : "s"} this week (you have ${plannedTotal}).`,
+        variant: "destructive",
+      });
       return;
     }
     submitMutation.mutate();
@@ -193,6 +233,29 @@ export function PicksTab({ leagueId, currentWeek }: PicksTabProps) {
           )}
         </CardContent>
       </Card>
+
+      {effectiveMin > 0 && (
+        <Card className={belowMinimum ? "border-destructive" : "border-accent"} data-testid="card-min-picks">
+          <CardContent className="py-4">
+            <div className="flex items-center gap-2 text-sm">
+              {belowMinimum ? (
+                <AlertTriangle className="w-4 h-4 text-destructive shrink-0" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400 shrink-0" />
+              )}
+              <span data-testid="text-min-picks-progress">
+                <span className="font-medium">Minimum {effectiveMin} pick{effectiveMin === 1 ? "" : "s"} required this week.</span>{" "}
+                You've made {plannedTotal} of {effectiveMin} required pick{effectiveMin === 1 ? "" : "s"}.
+                {minUnattainable
+                  ? " Too many games have locked without a pick — the minimum can no longer be met and you will forfeit this week's matchup."
+                  : belowMinimum
+                    ? " If you don't meet the minimum, you automatically lose your matchup."
+                    : ""}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="space-y-4">
         {games.map((game) => {

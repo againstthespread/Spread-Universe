@@ -1431,6 +1431,95 @@ export async function registerRoutes(
   });
 
   // Admin routes for games
+  // Week-level minimum pick requirement (games are global per week)
+  app.get("/api/gambling-league/weeks/:week/settings", requireAuth, async (req, res) => {
+    try {
+      const week = parseInt(req.params.week);
+      if (isNaN(week)) return res.status(400).json({ message: "Invalid week" });
+      const [minPicks, games] = await Promise.all([
+        storage.gl_getWeekMinPicks(week),
+        storage.gl_getGamesByWeek(week),
+      ]);
+      res.json({ week, minPicks, gameCount: games.length });
+    } catch (error) {
+      console.error("GL get week settings error:", error);
+      res.status(500).json({ message: "Failed to get week settings" });
+    }
+  });
+
+  app.put("/api/gambling-league/admin/weeks/:week/settings", requireAdmin, async (req, res) => {
+    try {
+      const week = parseInt(req.params.week);
+      if (isNaN(week)) return res.status(400).json({ message: "Invalid week" });
+      const parsed = z.object({ minPicks: z.coerce.number().int().min(0) }).safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Minimum picks must be a non-negative whole number" });
+      await storage.gl_setWeekMinPicks(week, parsed.data.minPicks);
+      res.json({ week, minPicks: parsed.data.minPicks });
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("Minimum picks must be")) {
+        return res.status(400).json({ message: error.message });
+      }
+      console.error("GL set week settings error:", error);
+      res.status(500).json({ message: "Failed to update week settings" });
+    }
+  });
+
+  // Admin game management routes used by the admin panel
+  app.get("/api/gambling-league/admin/weeks/:week/games", requireAdmin, async (req, res) => {
+    try {
+      const week = parseInt(req.params.week);
+      if (isNaN(week)) return res.status(400).json({ message: "Invalid week" });
+      res.json(await storage.gl_getGamesByWeek(week));
+    } catch (error) {
+      console.error("GL admin get games error:", error);
+      res.status(500).json({ message: "Failed to get games" });
+    }
+  });
+
+  app.post("/api/gambling-league/admin/weeks/:week/games", requireAdmin, async (req, res) => {
+    try {
+      const week = parseInt(req.params.week);
+      if (isNaN(week)) return res.status(400).json({ message: "Invalid week" });
+      const result = insertGamblingLeagueGameSchema.safeParse({ ...req.body, week });
+      if (!result.success) {
+        return res.status(400).json({ message: result.error.errors[0].message });
+      }
+      const game = await storage.gl_createGame(result.data);
+      res.json(game);
+    } catch (error) {
+      console.error("GL admin create game error:", error);
+      res.status(500).json({ message: "Failed to create game" });
+    }
+  });
+
+  app.post("/api/gambling-league/admin/games/:id/results", requireAdmin, async (req, res) => {
+    try {
+      const result = updateGamblingLeagueGameResultSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ message: result.error.errors[0].message });
+      }
+      const game = await storage.gl_updateGameResult(req.params.id, result.data);
+      if (!game) return res.status(404).json({ message: "Game not found" });
+      res.json(game);
+    } catch (error) {
+      console.error("GL admin update result error:", error);
+      res.status(500).json({ message: "Failed to update result" });
+    }
+  });
+
+  app.delete("/api/gambling-league/admin/games/:id", requireAdmin, async (req, res) => {
+    try {
+      const game = await storage.gl_getGame(req.params.id);
+      if (!game) return res.status(404).json({ message: "Game not found" });
+      // Deletion re-caps the week's minimum picks internally if needed
+      await storage.gl_deleteGame(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("GL admin delete game error:", error);
+      res.status(500).json({ message: "Failed to delete game" });
+    }
+  });
+
   app.post("/api/gambling-league/admin/games", requireAdmin, async (req, res) => {
     try {
       const result = insertGamblingLeagueGameSchema.safeParse(req.body);

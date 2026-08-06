@@ -12,6 +12,7 @@ import {
   gamblingLeagueLeagues,
   gamblingLeagueMembers,
   gamblingLeagueGames,
+  gamblingLeagueWeekSettings,
   gamblingLeaguePicks,
   gamblingLeagueMatchups,
   postseasonGames,
@@ -211,6 +212,10 @@ export interface IStorage {
   gl_createGame(game: InsertGamblingLeagueGame): Promise<GamblingLeagueGame>;
   gl_updateGameResult(id: string, data: UpdateGamblingLeagueGameResult): Promise<GamblingLeagueGame | undefined>;
   gl_getGamesWithPicks(week: number, userId: string, leagueId: string): Promise<GamblingLeagueGameWithPick[]>;
+  gl_deleteGame(id: string): Promise<void>;
+
+  gl_getWeekMinPicks(week: number): Promise<number>;
+  gl_setWeekMinPicks(week: number, minPicks: number): Promise<void>;
   
   gl_getPicks(leagueId: string, userId: string): Promise<GamblingLeaguePick[]>;
   gl_getPicksByUserLeagueWeek(userId: string, leagueId: string, week: number): Promise<GamblingLeaguePick[]>;
@@ -996,6 +1001,54 @@ export class DatabaseStorage implements IStorage {
     return newGame;
   }
 
+  /**
+   * Serializes concurrent mutations of a week's games/min-picks setting so
+   * validation can't race (e.g. a delete lowering the game count while a
+   * settings save validates against the old count). Lock is transaction-scoped.
+   */
+  private async gl_lockWeekSettings(tx: { execute: (q: ReturnType<typeof sql>) => Promise<unknown> }, week: number): Promise<void> {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('gl_week_settings'), ${week})`);
+  }
+
+  /** Deletes a game and re-caps the week's minimum if the count dropped below it. */
+  async gl_deleteGame(id: string): Promise<void> {
+    const game = await this.gl_getGame(id);
+    if (!game) return;
+    await db.transaction(async (tx) => {
+      await this.gl_lockWeekSettings(tx, game.week);
+      await tx.delete(gamblingLeagueGames).where(eq(gamblingLeagueGames.id, id));
+      const [{ count }] = await tx.select({ count: sql<number>`count(*)` })
+        .from(gamblingLeagueGames).where(eq(gamblingLeagueGames.week, game.week));
+      await tx.update(gamblingLeagueWeekSettings)
+        .set({ minPicks: Number(count) })
+        .where(and(
+          eq(gamblingLeagueWeekSettings.week, game.week),
+          gt(gamblingLeagueWeekSettings.minPicks, Number(count)),
+        ));
+    });
+  }
+
+  async gl_getWeekMinPicks(week: number): Promise<number> {
+    const [row] = await db.select().from(gamblingLeagueWeekSettings).where(eq(gamblingLeagueWeekSettings.week, week));
+    return row?.minPicks ?? 0;
+  }
+
+  /** Validates 0..(games that week) then upserts the week's minimum pick requirement. */
+  async gl_setWeekMinPicks(week: number, minPicks: number): Promise<void> {
+    await db.transaction(async (tx) => {
+      await this.gl_lockWeekSettings(tx, week);
+      const [{ count }] = await tx.select({ count: sql<number>`count(*)` })
+        .from(gamblingLeagueGames).where(eq(gamblingLeagueGames.week, week));
+      const gameCount = Number(count);
+      if (!Number.isInteger(minPicks) || minPicks < 0 || minPicks > gameCount) {
+        throw new Error(`Minimum picks must be between 0 and ${gameCount} (games entered for week ${week})`);
+      }
+      await tx.insert(gamblingLeagueWeekSettings)
+        .values({ week, minPicks })
+        .onConflictDoUpdate({ target: gamblingLeagueWeekSettings.week, set: { minPicks } });
+    });
+  }
+
   async gl_updateGameResult(id: string, data: UpdateGamblingLeagueGameResult): Promise<GamblingLeagueGame | undefined> {
     const [game] = await db.update(gamblingLeagueGames).set({
       homeScore: data.homeScore,
@@ -1303,16 +1356,40 @@ export class DatabaseStorage implements IStorage {
       ? await this.gl_getPlayoffSeeds(leagueId)
       : null;
 
+    // Minimum pick requirement: users with fewer picks than the week's
+    // minimum forfeit their matchup. Cap at the current game count in case
+    // games were deleted after the minimum was set.
+    const weekGameCount = (await this.gl_getGamesByWeek(week)).length;
+    const minPicks = Math.min(await this.gl_getWeekMinPicks(week), weekGameCount);
+    const forfeited = async (userId: string): Promise<boolean> => {
+      if (minPicks <= 0) return false;
+      const picks = await this.gl_getPicksByUserLeagueWeek(userId, leagueId, week);
+      return picks.length < minPicks;
+    };
+
     // Precompute NPW outside the transaction (reads graded picks only)
-    const scored: { id: string; user1Npw: number; user2Npw: number; winnerId: string | null }[] = [];
+    const scored: { id: string; user1Npw: number; user2Npw: number; winnerId: string | null; user1Forfeit: boolean; user2Forfeit: boolean }[] = [];
     for (const m of matchups) {
       if (m.isComplete) continue;
       const user1Npw = await this.gl_netPicksWon(leagueId, m.user1Id, week);
       const user2Npw = m.user2Id ? await this.gl_netPicksWon(leagueId, m.user2Id, week) : 0;
+      const user1Forfeit = await forfeited(m.user1Id);
+      const user2Forfeit = m.user2Id ? await forfeited(m.user2Id) : false;
 
       let winnerId: string | null = null;
       if (!m.user2Id) {
-        winnerId = m.user1Id; // bye week counts as a win
+        // Bye week counts as a win — unless the user missed the pick minimum.
+        winnerId = user1Forfeit ? null : m.user1Id;
+      } else if (user1Forfeit !== user2Forfeit) {
+        // Exactly one player missed the minimum: they lose automatically.
+        winnerId = user1Forfeit ? m.user2Id : m.user1Id;
+      } else if (user1Forfeit && user2Forfeit) {
+        // Both missed: draw in the regular season; higher seed advances in playoffs.
+        if (m.isPlayoff && seeds) {
+          const seed1 = seeds.indexOf(m.user1Id);
+          const seed2 = seeds.indexOf(m.user2Id);
+          winnerId = seed1 <= seed2 ? m.user1Id : m.user2Id;
+        }
       } else if (user1Npw > user2Npw) {
         winnerId = m.user1Id;
       } else if (user2Npw > user1Npw) {
@@ -1322,7 +1399,7 @@ export class DatabaseStorage implements IStorage {
         const seed2 = seeds.indexOf(m.user2Id);
         winnerId = seed1 <= seed2 ? m.user1Id : m.user2Id;
       }
-      scored.push({ id: m.id, user1Npw, user2Npw, winnerId });
+      scored.push({ id: m.id, user1Npw, user2Npw, winnerId, user1Forfeit, user2Forfeit });
     }
 
     const nextWeek = week + 1;
@@ -1344,6 +1421,7 @@ export class DatabaseStorage implements IStorage {
       for (const s of scored) {
         await tx.update(gamblingLeagueMatchups).set({
           user1Npw: s.user1Npw, user2Npw: s.user2Npw, winnerId: s.winnerId, isComplete: true,
+          user1Forfeit: s.user1Forfeit, user2Forfeit: s.user2Forfeit,
         }).where(eq(gamblingLeagueMatchups.id, s.id));
       }
 

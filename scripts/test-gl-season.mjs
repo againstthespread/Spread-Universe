@@ -126,25 +126,75 @@ if (process.env.SCHEDULE_ONLY === "1") {
   process.exit(0);
 }
 
+// Users forced under the week-1 minimum (set up in runWeek, asserted after finalize)
+let w1SingleForfeitUser = null;   // username expected to lose by forfeit
+let w1DoubleForfeitPair = null;   // [usernameA, usernameB] expected to draw by double forfeit
+
 async function runWeek(week, withGames) {
   if (withGames) {
     const gameIds = [];
     for (let g = 0; g < 3; g++) {
-      const r = await api(users[0], "POST", "/api/gambling-league/admin/games", {
-        week, homeTeam: `Home W${week}G${g}`, awayTeam: `Away W${week}G${g}`, spread: "-3.5",
-        gameTime: new Date(Date.now() + 86400000).toISOString(),
-      });
+      // Week 1 exercises the week-scoped admin route; other weeks the legacy route
+      const r = week === 1
+        ? await api(users[0], "POST", `/api/gambling-league/admin/weeks/1/games`, {
+            homeTeam: `Home W${week}G${g}`, awayTeam: `Away W${week}G${g}`, spread: "-3.5",
+            gameTime: new Date(Date.now() + 86400000).toISOString(),
+          })
+        : await api(users[0], "POST", "/api/gambling-league/admin/games", {
+            week, homeTeam: `Home W${week}G${g}`, awayTeam: `Away W${week}G${g}`, spread: "-3.5",
+            gameTime: new Date(Date.now() + 86400000).toISOString(),
+          });
       assert(r.status === 200, `game w${week}: ${r.status} ${JSON.stringify(r.data)}`);
       gameIds.push(r.data.id);
     }
+    const underPickers = new Set();
+    // Week 1 exercises the minimum-pick requirement (min=2; forfeiters pick just 1)
+    if (week === 1) {
+      // Games are global, so week 1 may contain leftovers from other runs — use the live count
+      const pre = await api(users[0], "GET", "/api/gambling-league/weeks/1/settings");
+      const bad = await api(users[0], "PUT", "/api/gambling-league/admin/weeks/1/settings", { minPicks: pre.data.gameCount + 1 });
+      assert(bad.status === 400, `min above game count should be rejected, got ${bad.status}`);
+
+      // Delete re-cap: set min to the full count, delete a game, expect the min to drop with it
+      const extra = await api(users[0], "POST", "/api/gambling-league/admin/weeks/1/games", {
+        homeTeam: "Home W1EXTRA", awayTeam: "Away W1EXTRA", spread: "-3.5",
+        gameTime: new Date(Date.now() + 86400000).toISOString(),
+      });
+      assert(extra.status === 200, `extra game: ${extra.status}`);
+      const full = (await api(users[0], "GET", "/api/gambling-league/weeks/1/settings")).data.gameCount;
+      assert((await api(users[0], "PUT", "/api/gambling-league/admin/weeks/1/settings", { minPicks: full })).status === 200, "set min to full count");
+      const del = await api(users[0], "DELETE", `/api/gambling-league/admin/games/${extra.data.id}`);
+      assert(del.status === 200, `delete extra game: ${del.status}`);
+      const recapped = (await api(users[0], "GET", "/api/gambling-league/weeks/1/settings")).data;
+      assert(recapped.minPicks === full - 1, `min should re-cap to ${full - 1} after delete, got ${recapped.minPicks}`);
+      console.log(`N=${N}: week-1 min-picks validation + delete re-cap passed`);
+
+      const ok = await api(users[0], "PUT", "/api/gambling-league/admin/weeks/1/settings", { minPicks: 2 });
+      assert(ok.status === 200, `set min picks: ${ok.status} ${JSON.stringify(ok.data)}`);
+      const st = await api(users[1], "GET", "/api/gambling-league/weeks/1/settings");
+      assert(st.data.minPicks === 2, `settings readback: ${JSON.stringify(st.data)}`);
+
+      // Choose forfeiters from the actual week-1 matchups:
+      // one matchup double-forfeits (draw), one other player single-forfeits (loss)
+      const ms1 = (await api(users[0], "GET", `/api/gambling-league/leagues/${leagueId}/matchups?week=1`)).data;
+      const withOpponents = ms1.filter(m => m.user2);
+      assert(withOpponents.length >= 2, "need at least two week-1 matchups for forfeit scenarios");
+      w1DoubleForfeitPair = [withOpponents[0].user1.username, withOpponents[0].user2.username];
+      w1SingleForfeitUser = withOpponents[1].user1.username;
+      [...w1DoubleForfeitPair, w1SingleForfeitUser].forEach(u => underPickers.add(u));
+    }
     for (let i = 0; i < users.length; i++) {
-      const picks = gameIds.map((gameId, g) => ({ gameId, leagueId, week, pickedTeam: (i + g + week) % 2 === 0 ? "home" : "away" }));
+      let picks = gameIds.map((gameId, g) => ({ gameId, leagueId, week, pickedTeam: (i + g + week) % 2 === 0 ? "home" : "away" }));
+      if (underPickers.has(users[i])) picks = picks.slice(0, 1); // under the minimum -> forfeit
       const r = await api(users[i], "POST", "/api/gambling-league/picks", { picks });
       assert(r.status === 200, `picks ${users[i]} w${week}: ${r.status} ${JSON.stringify(r.data)}`);
     }
     const scores = [[24, 17], [28, 20], [14, 21]];
     for (let g = 0; g < 3; g++) {
-      const r = await api(users[0], "PATCH", `/api/gambling-league/admin/games/${gameIds[g]}/result`, { homeScore: scores[g][0], awayScore: scores[g][1] });
+      // Week 1 exercises the admin-panel results route; other weeks the legacy PATCH
+      const r = week === 1
+        ? await api(users[0], "POST", `/api/gambling-league/admin/games/${gameIds[g]}/results`, { homeScore: scores[g][0], awayScore: scores[g][1] })
+        : await api(users[0], "PATCH", `/api/gambling-league/admin/games/${gameIds[g]}/result`, { homeScore: scores[g][0], awayScore: scores[g][1] });
       assert(r.status === 200, `result w${week}g${g}: ${r.status}`);
     }
   }
@@ -153,8 +203,31 @@ async function runWeek(week, withGames) {
   return fin.data;
 }
 
-for (let w = 1; w <= RS; w++) await runWeek(w, true);
-console.log(`N=${N}: regular season done (weeks 1-${RS})`);
+for (let w = 1; w <= RS; w++) {
+  await runWeek(w, true);
+  if (w === 1) {
+    const ms = (await api(users[0], "GET", `/api/gambling-league/leagues/${leagueId}/matchups?week=1`)).data;
+    // Single forfeit: the under-picker loses to their opponent
+    const single = ms.find(x => x.user1.username === w1SingleForfeitUser || x.user2?.username === w1SingleForfeitUser);
+    assert(single, "no week-1 matchup for single-forfeit user");
+    const isU1 = single.user1.username === w1SingleForfeitUser;
+    assert(isU1 ? single.user1Forfeit : single.user2Forfeit, `forfeit flag not set: ${JSON.stringify(single)}`);
+    assert(!(isU1 ? single.user2Forfeit : single.user1Forfeit), `opponent wrongly flagged: ${JSON.stringify(single)}`);
+    const opponentId = isU1 ? single.user2Id : single.user1Id;
+    assert(single.winnerId === opponentId, `forfeit should lose the matchup: winner=${single.winnerId}, opponent=${opponentId}`);
+    // Double forfeit: both flagged, regular-season draw (no winner)
+    const dbl = ms.find(x => w1DoubleForfeitPair.includes(x.user1.username) && x.user2 && w1DoubleForfeitPair.includes(x.user2.username));
+    assert(dbl, "no week-1 double-forfeit matchup");
+    assert(dbl.user1Forfeit && dbl.user2Forfeit, `both forfeit flags should be set: ${JSON.stringify(dbl)}`);
+    assert(dbl.isComplete && dbl.winnerId === null, `double forfeit should be a draw: ${JSON.stringify(dbl)}`);
+    // Everyone else met the minimum -> no forfeit flags
+    for (const other of ms.filter(x => x !== single && x !== dbl)) {
+      assert(!other.user1Forfeit && !other.user2Forfeit, `unexpected forfeit: ${JSON.stringify(other)}`);
+    }
+    console.log(`N=${N}: week-1 forfeit assertions passed (single loss + double-forfeit draw)`);
+  }
+}
+console.log(`N=${N}: regular season done (weeks 1-${RS}; weeks 2+ have no minimum — unchanged behavior)`);
 
 // Seed order for verification (projected-seeds mirrors gl_getPlayoffSeeds:
 // wins desc -> total NPW desc -> userId asc; standings may tiebreak differently)
@@ -195,6 +268,9 @@ for (let week = RS + 1; week <= 17; week++) {
   lastResult = await runWeek(week, true);
 }
 assert(lastResult.status === "completed", `should complete after week 17, got ${lastResult.status}`);
+
+// Week settings are global — reset week 1's minimum so real leagues aren't affected
+await api(users[0], "PUT", "/api/gambling-league/admin/weeks/1/settings", { minPicks: 0 });
 
 const champ = (await api(users[0], "GET", `/api/gambling-league/leagues/${leagueId}/champion`)).data;
 assert(champ.champion?.username, `no champion: ${JSON.stringify(champ)}`);

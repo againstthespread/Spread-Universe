@@ -348,6 +348,14 @@ export const gamblingLeagueGames = pgTable("gambling_league_games", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Per-week global settings (games are global per week, so the minimum pick
+// requirement is week-level and applies to every league).
+export const gamblingLeagueWeekSettings = pgTable("gambling_league_week_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  week: integer("week").notNull().unique(),
+  minPicks: integer("min_picks").default(0).notNull(),
+});
+
 export const gamblingLeaguePicks = pgTable("gambling_league_picks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
@@ -375,6 +383,11 @@ export const gamblingLeagueMatchups = pgTable("gambling_league_matchups", {
   isComplete: boolean("is_complete").default(false).notNull(),
   isPlayoff: boolean("is_playoff").default(false).notNull(),
   playoffRound: text("playoff_round"),
+  // Set at finalize when a user made fewer picks than the week's minimum —
+  // they automatically lose the matchup (double-forfeit = draw in the regular
+  // season; higher seed advances in the playoffs).
+  user1Forfeit: boolean("user1_forfeit").default(false).notNull(),
+  user2Forfeit: boolean("user2_forfeit").default(false).notNull(),
 });
 
 // Gambling League Insert Schemas
@@ -441,6 +454,7 @@ export type UpdateGamblingLeagueGameResult = z.infer<typeof updateGamblingLeague
 export type GamblingLeaguePick = typeof gamblingLeaguePicks.$inferSelect;
 export type InsertGamblingLeaguePick = z.infer<typeof insertGamblingLeaguePickSchema>;
 export type GamblingLeagueMatchup = typeof gamblingLeagueMatchups.$inferSelect;
+export type GamblingLeagueWeekSetting = typeof gamblingLeagueWeekSettings.$inferSelect;
 export type InsertGamblingLeagueMatchup = z.infer<typeof insertGamblingLeagueMatchupSchema>;
 
 export type GamblingLeagueStandingEntry = {

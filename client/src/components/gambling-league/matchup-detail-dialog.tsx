@@ -105,6 +105,11 @@ export function MatchupDetailDialog({ matchup, open, onOpenChange }: MatchupDeta
           <div className="flex items-center justify-between gap-4">
             <div className="flex-1 text-center">
               <div className="font-semibold text-lg">{matchup.user1.username}</div>
+              {matchup.user1Forfeit && (
+                <Badge variant="destructive" className="mt-1 text-xs" data-testid="badge-forfeit-user1">
+                  Forfeit — missed pick minimum
+                </Badge>
+              )}
               {matchup.isComplete && (
                 <div className="mt-2">
                   <Badge variant={matchup.winnerId === matchup.user1.id ? "default" : "secondary"} className="text-lg px-3 py-1">
@@ -124,6 +129,11 @@ export function MatchupDetailDialog({ matchup, open, onOpenChange }: MatchupDeta
               {matchup.user2 ? (
                 <>
                   <div className="font-semibold text-lg">{matchup.user2.username}</div>
+                  {matchup.user2Forfeit && (
+                    <Badge variant="destructive" className="mt-1 text-xs" data-testid="badge-forfeit-user2">
+                      Forfeit — missed pick minimum
+                    </Badge>
+                  )}
                   {matchup.isComplete && (
                     <div className="mt-2">
                       <Badge variant={matchup.winnerId === matchup.user2.id ? "default" : "secondary"} className="text-lg px-3 py-1">

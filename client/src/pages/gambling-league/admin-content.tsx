@@ -66,6 +66,7 @@ export default function GamblingLeagueAdminContent() {
     gameTime: "",
   });
   const [showResetDialog, setShowResetDialog] = useState(false);
+  const [minPicksInput, setMinPicksInput] = useState<string | null>(null);
   const [resultInputs, setResultInputs] = useState<Record<string, { homeScore: string; awayScore: string }>>({});
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
@@ -84,6 +85,7 @@ export default function GamblingLeagueAdminContent() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/gambling-league/admin/weeks", selectedWeek, "games"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gambling-league/weeks", selectedWeek, "settings"] });
       toast({ title: "Game added" });
       setCreateDialogOpen(false);
       setGameForm({ week: selectedWeek, homeTeam: "", awayTeam: "", spread: "0", gameTime: "" });
@@ -112,7 +114,31 @@ export default function GamblingLeagueAdminContent() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/gambling-league/admin/weeks", selectedWeek, "games"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gambling-league/weeks", selectedWeek, "settings"] });
       toast({ title: "Game deleted" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const { data: weekSettings } = useQuery<{ week: number; minPicks: number; gameCount: number }>({
+    queryKey: ["/api/gambling-league/weeks", selectedWeek, "settings"],
+    queryFn: async () => {
+      const res = await fetch(`/api/gambling-league/weeks/${selectedWeek}/settings`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+  });
+
+  const saveMinPicksMutation = useMutation({
+    mutationFn: async (minPicks: number) => {
+      return await apiRequest("PUT", `/api/gambling-league/admin/weeks/${selectedWeek}/settings`, { minPicks });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gambling-league/weeks", selectedWeek, "settings"] });
+      setMinPicksInput(null);
+      toast({ title: "Minimum picks saved" });
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -307,6 +333,7 @@ export default function GamblingLeagueAdminContent() {
                 onClick={() => {
                   setSelectedWeek(week);
                   setGameForm({ ...gameForm, week });
+                  setMinPicksInput(null);
                 }}
                 data-testid={`button-gl-week-${week}`}
               >
@@ -314,6 +341,50 @@ export default function GamblingLeagueAdminContent() {
               </Button>
             ))}
           </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Minimum Picks Required — Week {selectedWeek}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-end gap-3 flex-wrap">
+                <div className="space-y-1">
+                  <Label htmlFor="minPicks" className="text-xs">
+                    Users must pick at least this many games (0–{games.length})
+                  </Label>
+                  <Input
+                    id="minPicks"
+                    type="number"
+                    min={0}
+                    max={games.length}
+                    className="w-24"
+                    value={minPicksInput ?? (weekSettings?.minPicks?.toString() || "0")}
+                    onChange={(e) => setMinPicksInput(e.target.value)}
+                    data-testid="input-gl-min-picks"
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    const val = parseInt(minPicksInput ?? (weekSettings?.minPicks?.toString() || "0"));
+                    if (isNaN(val) || val < 0 || val > games.length) {
+                      toast({ title: "Error", description: `Minimum picks must be between 0 and ${games.length}`, variant: "destructive" });
+                      return;
+                    }
+                    saveMinPicksMutation.mutate(val);
+                  }}
+                  disabled={saveMinPicksMutation.isPending}
+                  data-testid="button-gl-save-min-picks"
+                >
+                  <Check className="h-4 w-4 mr-2" />
+                  Save
+                </Button>
+                <p className="text-xs text-muted-foreground pb-2">
+                  Users who make fewer picks automatically lose their matchup for the week.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
 
           {games.length > 0 ? (
             <Table>
