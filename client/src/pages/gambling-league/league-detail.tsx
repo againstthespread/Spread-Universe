@@ -11,8 +11,7 @@ import { StandingsTab } from "@/components/gambling-league/standings-tab";
 import { PicksTab } from "@/components/gambling-league/picks-tab";
 import { ScheduleTab } from "@/components/gambling-league/schedule-tab";
 import { MatchupDetailDialog } from "@/components/gambling-league/matchup-detail-dialog";
-import { ArrowLeft, ArrowRight, Trophy, Calendar, Target, Users, Swords, Copy, Play, Crown, GitBranch } from "lucide-react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ArrowLeft, Trophy, Calendar, Target, Users, Copy, Play, Crown, GitBranch } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { GamblingLeagueLeague, GamblingLeagueMember, GamblingLeagueMatchupWithUsers, User } from "@shared/schema";
 
@@ -26,7 +25,6 @@ export default function LeagueDetail() {
   const { toast } = useToast();
   const [selectedMatchup, setSelectedMatchup] = useState<GamblingLeagueMatchupWithUsers | null>(null);
   const [matchupDialogOpen, setMatchupDialogOpen] = useState(false);
-  const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
 
   const { data: league, isLoading } = useQuery<LeagueWithMembers>({
     queryKey: ["/api/gambling-league/leagues", id],
@@ -36,19 +34,6 @@ export default function LeagueDetail() {
       return res.json();
     },
     enabled: !!id,
-  });
-
-  const currentDisplayWeek = league ? Math.min(league.currentWeek, 17) : 1;
-  const displayWeek = selectedWeek ?? currentDisplayWeek;
-
-  const { data: matchups = [] } = useQuery<GamblingLeagueMatchupWithUsers[]>({
-    queryKey: ["/api/gambling-league/leagues", id, "matchups", displayWeek],
-    queryFn: async () => {
-      const res = await fetch(`/api/gambling-league/leagues/${id}/matchups?week=${displayWeek}`, { credentials: "include" });
-      if (!res.ok) throw new Error(await res.text());
-      return res.json();
-    },
-    enabled: !!league,
   });
 
   const playoffsStarted = !!league && league.currentWeek >= 15 && league.status !== "open" && league.status !== "full";
@@ -182,91 +167,6 @@ export default function LeagueDetail() {
         </Card>
       )}
 
-      {(league.status === "active" || league.status === "completed") && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <Swords className="w-5 h-5" />
-                {matchups[0]?.isPlayoff
-                  ? `${matchups[0].playoffRound === "championship" ? "Championship" : matchups[0].playoffRound === "semifinal" ? "Semifinals" : "Quarterfinals"} — Week ${displayWeek}`
-                  : `Week ${displayWeek} Matchups`}
-              </CardTitle>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  disabled={displayWeek <= 1}
-                  onClick={() => setSelectedWeek(Math.max(1, displayWeek - 1))}
-                  data-testid="button-prev-week"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                </Button>
-                <Select
-                  value={String(displayWeek)}
-                  onValueChange={(v) => setSelectedWeek(parseInt(v))}
-                >
-                  <SelectTrigger className="w-36" data-testid="select-week">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Array.from({ length: currentDisplayWeek }, (_, i) => i + 1).map((w) => (
-                      <SelectItem key={w} value={String(w)} data-testid={`option-week-${w}`}>
-                        {w >= 15 ? `Week ${w} (${w === 17 ? "Championship" : w === 16 ? "Semifinals" : "Quarterfinals"})` : `Week ${w}`}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  disabled={displayWeek >= currentDisplayWeek}
-                  onClick={() => setSelectedWeek(Math.min(currentDisplayWeek, displayWeek + 1))}
-                  data-testid="button-next-week"
-                >
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {matchups.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-6" data-testid="text-no-matchups">
-                No matchups for week {displayWeek}.
-              </p>
-            ) : (
-            <div className="grid gap-3 md:grid-cols-2">
-              {matchups.map((matchup) => (
-                <div
-                  key={matchup.id}
-                  className="p-3 rounded-md border hover-elevate cursor-pointer flex items-center justify-between gap-2"
-                  onClick={() => {
-                    setSelectedMatchup(matchup);
-                    setMatchupDialogOpen(true);
-                  }}
-                  data-testid={`card-matchup-${matchup.id}`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className={matchup.winnerId === matchup.user1.id ? "font-bold text-green-600 dark:text-green-400" : ""}>
-                      {matchup.user1.username}
-                    </span>
-                    {matchup.isComplete && <Badge variant="secondary">{matchup.user1Npw ?? 0}</Badge>}
-                  </div>
-                  <span className="text-muted-foreground text-sm">vs</span>
-                  <div className="flex items-center gap-2">
-                    {matchup.isComplete && matchup.user2 && <Badge variant="secondary">{matchup.user2Npw ?? 0}</Badge>}
-                    <span className={matchup.winnerId === matchup.user2?.id ? "font-bold text-green-600 dark:text-green-400" : ""}>
-                      {matchup.user2?.username || "BYE"}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
       {playoffsStarted && playoffMatchups.length > 0 && (
         <Card>
           <CardHeader>
@@ -356,7 +256,7 @@ export default function LeagueDetail() {
           )}
         </TabsContent>
         <TabsContent value="schedule" className="mt-6">
-          <ScheduleTab currentWeek={league.currentWeek} />
+          <ScheduleTab leagueId={league.id} currentWeek={league.currentWeek} />
         </TabsContent>
       </Tabs>
 
