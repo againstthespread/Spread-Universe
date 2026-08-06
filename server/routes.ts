@@ -32,6 +32,7 @@ import {
   type FantasyStreamGame,
   type FantasyStreamPlay,
 } from "@shared/schema";
+import { isPickLocked } from "@shared/pick-lock";
 import { z } from "zod";
 import session from "express-session";
 import MemoryStore from "memorystore";
@@ -1369,8 +1370,8 @@ export async function registerRoutes(
         if (game.isComplete) {
           return res.status(400).json({ message: "Picks are locked for games that already have results" });
         }
-        if (new Date(game.gameTime) <= new Date()) {
-          return res.status(400).json({ message: "Picks are locked once a game has kicked off" });
+        if (isPickLocked(game.gameTime)) {
+          return res.status(400).json({ message: "Picks are locked for this game" });
         }
         const mismatched = result.data.picks.find(p => p.gameId === gameId && p.week !== game.week);
         if (mismatched) {

@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Lock, Clock, CheckCircle2, StickyNote, XCircle, Minus } from "lucide-react";
 import type { GamblingLeagueGameWithPick } from "@shared/schema";
-
+import { getPickLockTime, getMainSlateLockTime, isPickLocked } from "@shared/pick-lock";
 import { formatInEastern } from "@/lib/timezone";
 interface PicksTabProps {
   leagueId: string;
@@ -23,7 +23,12 @@ export function PicksTab({ leagueId, currentWeek }: PicksTabProps) {
   const [picks, setPicks] = useState<Record<string, 'home' | 'away'>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [clearedPicks, setClearedPicks] = useState<Set<string>>(new Set());
-  const [timeUntilLock, setTimeUntilLock] = useState<string>("");
+  const [now, setNow] = useState<Date>(() => new Date());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const { data: games = [], isLoading } = useQuery<GamblingLeagueGameWithPick[]>({
     queryKey: ["/api/gambling-league/weeks", currentWeek, "games", leagueId],
@@ -34,35 +39,39 @@ export function PicksTab({ leagueId, currentWeek }: PicksTabProps) {
     },
   });
 
-  const firstGameTime = useMemo(() => {
-    if (!games || games.length === 0) return null;
-    const firstGame = games.reduce((earliest, game) => {
-      if (!earliest || new Date(game.gameTime) < new Date(earliest.gameTime)) {
-        return game;
-      }
-      return earliest;
-    });
-    return firstGame.gameTime;
+  // Tiered locking: Thu/Fri/Sat games lock 1 min before kickoff;
+  // Sun/Mon games all lock at 12:59 PM ET Sunday (see shared/pick-lock).
+  const gameLocked = (game: GamblingLeagueGameWithPick) => isPickLocked(game.gameTime, now);
+  const allLocked = games.length > 0 && games.every(gameLocked);
+
+  // Deadline for the Sun/Mon main slate (if this week has any).
+  const mainSlateLock = useMemo(() => {
+    for (const g of games) {
+      const lock = getMainSlateLockTime(g.gameTime);
+      if (lock) return lock;
+    }
+    return null;
   }, [games]);
 
-  useEffect(() => {
-    const calculateLockTime = () => {
-      if (!firstGameTime) return "No games scheduled";
-      const now = new Date();
-      const lockTime = new Date(firstGameTime);
-      const diff = lockTime.getTime() - now.getTime();
-      if (diff <= 0) return "Locked";
-      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-      if (days > 0) return `${days}d ${hours}h`;
-      if (hours > 0) return `${hours}h ${minutes}m`;
-      return `${minutes}m`;
-    };
-    setTimeUntilLock(calculateLockTime());
-    const interval = setInterval(() => setTimeUntilLock(calculateLockTime()), 60000);
-    return () => clearInterval(interval);
-  }, [firstGameTime]);
+  // Countdown to the next upcoming lock among still-open games.
+  const nextLock = useMemo(() => {
+    const upcoming = games
+      .map(g => getPickLockTime(g.gameTime))
+      .filter(t => t > now)
+      .sort((a, b) => a.getTime() - b.getTime());
+    return upcoming[0] ?? null;
+  }, [games, now]);
+
+  const timeUntilLock = useMemo(() => {
+    if (!nextLock) return "Locked";
+    const diff = nextLock.getTime() - now.getTime();
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    if (days > 0) return `${days}d ${hours}h`;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    return `${minutes}m`;
+  }, [nextLock, now]);
 
   const gamesKey = useMemo(() => {
     return games.map(g => `${g.id}-${g.userPick?.pickedTeam || 'none'}`).join(',');
@@ -82,19 +91,26 @@ export function PicksTab({ leagueId, currentWeek }: PicksTabProps) {
     setClearedPicks(new Set());
   }, [gamesKey]);
 
-  const isLocked = timeUntilLock === "Locked";
 
   const submitMutation = useMutation({
     mutationFn: async () => {
-      const pickData = Object.entries(picks).map(([gameId, pickedTeam]) => ({
-        gameId,
-        leagueId,
-        week: currentWeek,
-        pickedTeam,
-        note: notes[gameId] || null,
-      }));
+      // Only submit picks for games that are still open — locked games would
+      // cause the server to reject the whole batch.
+      const isOpen = (gameId: string) => {
+        const game = games.find(g => g.id === gameId);
+        return game ? !gameLocked(game) && !game.isComplete : false;
+      };
+      const pickData = Object.entries(picks)
+        .filter(([gameId]) => isOpen(gameId))
+        .map(([gameId, pickedTeam]) => ({
+          gameId,
+          leagueId,
+          week: currentWeek,
+          pickedTeam,
+          note: notes[gameId] || null,
+        }));
       Array.from(clearedPicks).forEach(gameId => {
-        if (!picks[gameId]) {
+        if (!picks[gameId] && isOpen(gameId)) {
           pickData.push({ gameId, leagueId, week: currentWeek, pickedTeam: null as any, note: null });
         }
       });
@@ -146,10 +162,10 @@ export function PicksTab({ leagueId, currentWeek }: PicksTabProps) {
 
   return (
     <div className="space-y-6">
-      <Card className={isLocked ? "border-destructive" : "border-accent"}>
+      <Card className={allLocked ? "border-destructive" : "border-accent"}>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            {isLocked ? (
+            {allLocked ? (
               <>
                 <Lock className="w-5 h-5 text-destructive" />
                 <span className="text-destructive">Picks Locked</span>
@@ -157,27 +173,41 @@ export function PicksTab({ leagueId, currentWeek }: PicksTabProps) {
             ) : (
               <>
                 <Clock className="w-5 h-5 text-accent" />
-                <span>Time Until Lock: {timeUntilLock}</span>
+                <span>Next Lock In: {timeUntilLock}</span>
               </>
             )}
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">
-            {isLocked ? "Picks are locked for this week." : firstGameTime ? (
-              <>All picks must be submitted before {formatInEastern(firstGameTime, "EEE, MMM d, h:mm a")} ET</>
-            ) : "Waiting for games"}
-          </p>
+          {allLocked ? (
+            <p className="text-sm text-muted-foreground">Picks are locked for this week.</p>
+          ) : (
+            <div className="text-sm text-muted-foreground space-y-1">
+              {mainSlateLock && (
+                <p data-testid="text-main-slate-deadline">
+                  Sunday &amp; Monday games lock {formatInEastern(mainSlateLock, "EEE, MMM d, h:mm a")} ET
+                </p>
+              )}
+              <p>Thursday–Saturday games lock 1 minute before their kickoff.</p>
+            </div>
+          )}
         </CardContent>
       </Card>
 
       <div className="space-y-4">
-        {games.map((game) => (
+        {games.map((game) => {
+          const isLocked = gameLocked(game) || game.isComplete;
+          return (
           <Card key={game.id} data-testid={`card-game-${game.id}`}>
             <CardHeader>
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <CardTitle className="text-lg">{game.awayTeam} @ {game.homeTeam}</CardTitle>
                 <div className="flex items-center gap-2 flex-wrap">
+                  {isLocked && !game.isComplete && (
+                    <Badge variant="secondary" data-testid={`badge-locked-${game.id}`}>
+                      <Lock className="w-3 h-3 mr-1" />Locked
+                    </Badge>
+                  )}
                   {game.isComplete && game.userPick && (
                     game.userPick.isPush ? (
                       <Badge variant="secondary"><Minus className="w-3 h-3 mr-1" />Push</Badge>
@@ -197,11 +227,16 @@ export function PicksTab({ leagueId, currentWeek }: PicksTabProps) {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                <div className="text-sm text-muted-foreground">
-                  Spread: {game.homeTeam} {parseFloat(game.spread) > 0 ? '+' : ''}{game.spread}
+                <div className="text-sm text-muted-foreground flex items-center justify-between gap-2 flex-wrap">
+                  <span>Spread: {game.homeTeam} {parseFloat(game.spread) > 0 ? '+' : ''}{game.spread}</span>
+                  {!game.isComplete && (
+                    <span className="text-xs" data-testid={`text-lock-time-${game.id}`}>
+                      {isLocked ? "Locked" : `Locks ${formatInEastern(getPickLockTime(game.gameTime), "EEE h:mm a")} ET`}
+                    </span>
+                  )}
                 </div>
                 <RadioGroup
-                  value={picks[game.id] || ""}
+                  value={isLocked ? (game.userPick?.pickedTeam ?? "") : (picks[game.id] || "")}
                   onValueChange={(value) => {
                     setPicks({ ...picks, [game.id]: value as 'home' | 'away' });
                     if (clearedPicks.has(game.id)) {
@@ -260,10 +295,11 @@ export function PicksTab({ leagueId, currentWeek }: PicksTabProps) {
               </div>
             </CardContent>
           </Card>
-        ))}
+          );
+        })}
       </div>
 
-      {!isLocked && (
+      {!allLocked && (
         <div className="sticky bottom-4 bg-background/95 backdrop-blur-sm p-4 rounded-lg border z-50">
           <Button
             className="w-full"
