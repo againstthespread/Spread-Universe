@@ -14,10 +14,10 @@ import { PlayoffsTab } from "@/components/gambling-league/playoffs-tab";
 import { MatchupDetailDialog } from "@/components/gambling-league/matchup-detail-dialog";
 import { ArrowLeft, Trophy, Calendar, Target, Users, Copy, Play, Crown, GitBranch } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import type { GamblingLeagueLeague, GamblingLeagueMember, GamblingLeagueMatchupWithUsers, User } from "@shared/schema";
+import type { GamblingLeagueLeague, GamblingLeagueMember, GamblingLeagueMatchupWithUsers, PublicUser } from "@shared/schema";
 
 type LeagueWithMembers = GamblingLeagueLeague & {
-  members: (GamblingLeagueMember & { user: User })[];
+  members: (GamblingLeagueMember & { user: PublicUser })[];
 };
 
 export default function LeagueDetail() {

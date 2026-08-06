@@ -118,6 +118,13 @@ export const insertCrowdlinePredictionSchema = createInsertSchema(crowdlinePredi
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
+/**
+ * Safe user shape for embedding in API responses (matchups, member lists,
+ * champions, etc.). NEVER embed the full `User` row in an API payload — it
+ * contains the password hash. Server code selects only these columns via the
+ * storage `PUBLIC_USER_COLUMNS` helper.
+ */
+export type PublicUser = Pick<User, "id" | "username">;
 export type PasswordResetCode = typeof passwordResetCodes.$inferSelect;
 
 export type CrowdlineGame = typeof crowdlineGames.$inferSelect;
@@ -453,9 +460,9 @@ export type GamblingLeagueGameWithPick = GamblingLeagueGame & {
 };
 
 export type GamblingLeagueMatchupWithUsers = GamblingLeagueMatchup & {
-  user1: User;
-  user2?: User | null;
-  winner?: User | null;
+  user1: PublicUser;
+  user2?: PublicUser | null;
+  winner?: PublicUser | null;
 };
 
 // PostseasonATS Tables and Types

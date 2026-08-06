@@ -36,6 +36,7 @@ import {
   POSTSEASON_ROUND_POINTS,
   POSTSEASON_ROUND_NAMES,
   type User, 
+  type PublicUser,
   type InsertUser, 
   type PasswordResetCode,
   type CrowdlineGame,
@@ -199,7 +200,7 @@ export interface IStorage {
   gl_getLeagueByJoinCode(code: string): Promise<GamblingLeagueLeague | undefined>;
   gl_createLeague(league: InsertGamblingLeagueLeague, creatorId: string): Promise<GamblingLeagueLeague>;
   gl_joinLeague(leagueId: string, userId: string): Promise<GamblingLeagueMember>;
-  gl_getLeagueMembers(leagueId: string): Promise<(GamblingLeagueMember & { user: User })[]>;
+  gl_getLeagueMembers(leagueId: string): Promise<(GamblingLeagueMember & { user: PublicUser })[]>;
   gl_getUserLeagues(userId: string): Promise<GamblingLeagueLeague[]>;
   gl_updateLeagueStatus(id: string, status: string): Promise<GamblingLeagueLeague | undefined>;
   gl_updateLeagueWeek(id: string, week: number): Promise<GamblingLeagueLeague | undefined>;
@@ -224,7 +225,7 @@ export interface IStorage {
   gl_updateMatchupResult(id: string, data: { user1Npw?: number; user2Npw?: number; winnerId?: string | null; isComplete?: boolean }): Promise<GamblingLeagueMatchup | undefined>;
   gl_startSeason(leagueId: string): Promise<void>;
   gl_finalizeWeek(leagueId: string, week: number): Promise<{ currentWeek: number; status: string }>;
-  gl_getChampion(leagueId: string): Promise<User | null>;
+  gl_getChampion(leagueId: string): Promise<PublicUser | null>;
   
   gl_getLeagueStandings(leagueId: string): Promise<GamblingLeagueStandingEntry[]>;
   gl_getProjectedSeeds(leagueId: string): Promise<{ userId: string; username: string; wins: number; npw: number }[]>;
@@ -332,7 +333,21 @@ export interface IStorage {
   cfb_getStandings(leagueId: string): Promise<CfbStandingEntry[]>;
 }
 
+/**
+ * The only user columns safe to embed in API responses. Every storage method
+ * that attaches a user to a payload (matchups, members, champions) must
+ * select through this — never the full `users` row, which carries the
+ * password hash.
+ */
+const PUBLIC_USER_COLUMNS = { id: users.id, username: users.username };
+
 export class DatabaseStorage implements IStorage {
+  /** Fetches the API-safe shape of a user (see PUBLIC_USER_COLUMNS). */
+  async getPublicUser(id: string): Promise<PublicUser | undefined> {
+    const [user] = await db.select(PUBLIC_USER_COLUMNS).from(users).where(eq(users.id, id));
+    return user || undefined;
+  }
+
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user || undefined;
@@ -927,11 +942,11 @@ export class DatabaseStorage implements IStorage {
     return member;
   }
 
-  async gl_getLeagueMembers(leagueId: string): Promise<(GamblingLeagueMember & { user: User })[]> {
+  async gl_getLeagueMembers(leagueId: string): Promise<(GamblingLeagueMember & { user: PublicUser })[]> {
     const members = await db.select().from(gamblingLeagueMembers).where(eq(gamblingLeagueMembers.leagueId, leagueId));
-    const result: (GamblingLeagueMember & { user: User })[] = [];
+    const result: (GamblingLeagueMember & { user: PublicUser })[] = [];
     for (const member of members) {
-      const user = await this.getUser(member.userId);
+      const user = await this.getPublicUser(member.userId);
       if (user) {
         result.push({ ...member, user });
       }
@@ -1077,9 +1092,9 @@ export class DatabaseStorage implements IStorage {
     const result: GamblingLeagueMatchupWithUsers[] = [];
     
     for (const matchup of matchups) {
-      const user1 = await this.getUser(matchup.user1Id);
-      const user2 = matchup.user2Id ? await this.getUser(matchup.user2Id) : null;
-      const winner = matchup.winnerId ? await this.getUser(matchup.winnerId) : null;
+      const user1 = await this.getPublicUser(matchup.user1Id);
+      const user2 = matchup.user2Id ? await this.getPublicUser(matchup.user2Id) : null;
+      const winner = matchup.winnerId ? await this.getPublicUser(matchup.winnerId) : null;
       
       if (user1) {
         result.push({ ...matchup, user1, user2: user2 || null, winner: winner || null });
@@ -1096,9 +1111,9 @@ export class DatabaseStorage implements IStorage {
     const result: GamblingLeagueMatchupWithUsers[] = [];
     
     for (const matchup of matchups) {
-      const user1 = await this.getUser(matchup.user1Id);
-      const user2 = matchup.user2Id ? await this.getUser(matchup.user2Id) : null;
-      const winner = matchup.winnerId ? await this.getUser(matchup.winnerId) : null;
+      const user1 = await this.getPublicUser(matchup.user1Id);
+      const user2 = matchup.user2Id ? await this.getPublicUser(matchup.user2Id) : null;
+      const winner = matchup.winnerId ? await this.getPublicUser(matchup.winnerId) : null;
       
       if (user1) {
         result.push({ ...matchup, user1, user2: user2 || null, winner: winner || null });
@@ -1409,7 +1424,7 @@ export class DatabaseStorage implements IStorage {
     if (values.length > 0) await dbc.insert(gamblingLeagueMatchups).values(values);
   }
 
-  async gl_getChampion(leagueId: string): Promise<User | null> {
+  async gl_getChampion(leagueId: string): Promise<PublicUser | null> {
     const [champ] = await db.select().from(gamblingLeagueMatchups).where(
       and(
         eq(gamblingLeagueMatchups.leagueId, leagueId),
@@ -1418,7 +1433,7 @@ export class DatabaseStorage implements IStorage {
       )
     );
     if (!champ?.winnerId) return null;
-    return (await this.getUser(champ.winnerId)) || null;
+    return (await this.getPublicUser(champ.winnerId)) || null;
   }
 
   async gl_getLeagueStandings(leagueId: string): Promise<GamblingLeagueStandingEntry[]> {
