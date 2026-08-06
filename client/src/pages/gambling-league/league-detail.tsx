@@ -12,7 +12,8 @@ import { PicksTab } from "@/components/gambling-league/picks-tab";
 import { ScheduleTab } from "@/components/gambling-league/schedule-tab";
 import { PlayoffsTab } from "@/components/gambling-league/playoffs-tab";
 import { MatchupDetailDialog } from "@/components/gambling-league/matchup-detail-dialog";
-import { ArrowLeft, Trophy, Calendar, Target, Users, Copy, Play, Crown, GitBranch } from "lucide-react";
+import { ArrowLeft, Trophy, Calendar, Target, Users, Copy, Play, Crown, GitBranch, AlertTriangle } from "lucide-react";
+import { useForfeitRisk } from "@/hooks/use-forfeit-risk";
 import { useToast } from "@/hooks/use-toast";
 import type { GamblingLeagueLeague, GamblingLeagueMember, GamblingLeagueMatchupWithUsers, PublicUser } from "@shared/schema";
 
@@ -46,6 +47,13 @@ export default function LeagueDetail() {
     },
     enabled: league?.status === "completed",
   });
+
+  const isMemberOfLeague = !!league && league.members.some(m => m.userId === user?.id);
+  const forfeitRisk = useForfeitRisk(
+    league?.id ?? "",
+    league?.currentWeek ?? 1,
+    isMemberOfLeague && league?.status === "active"
+  );
 
   const queryClient = useQueryClient();
   const startSeasonMutation = useMutation({
@@ -87,7 +95,7 @@ export default function LeagueDetail() {
     );
   }
 
-  const isMember = league.members.some(m => m.userId === user?.id);
+  const isMember = isMemberOfLeague;
 
   return (
     <div className="container max-w-6xl mx-auto p-6 space-y-6">
@@ -139,6 +147,26 @@ export default function LeagueDetail() {
           </Button>
         )}
       </div>
+
+      {forfeitRisk.atRisk && (
+        <Card className="border-destructive/50 bg-destructive/5" data-testid="banner-forfeit-warning">
+          <CardContent className="p-4 flex items-start gap-3">
+            <AlertTriangle className="w-6 h-6 text-destructive shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <h2 className="font-semibold text-destructive">
+                {forfeitRisk.unattainable
+                  ? "Week's minimum can no longer be met"
+                  : "You're at risk of forfeiting this week"}
+              </h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                {forfeitRisk.unattainable
+                  ? `Too many games have locked without a pick — you have ${forfeitRisk.picksMade} of the ${forfeitRisk.effectiveMin} required picks for Week ${league.currentWeek}. Your matchup will be forfeited when the week is finalized.`
+                  : `Week ${league.currentWeek} requires at least ${forfeitRisk.effectiveMin} pick${forfeitRisk.effectiveMin === 1 ? "" : "s"} and you've made ${forfeitRisk.picksMade}. Make your picks before games lock or your matchup will be forfeited.`}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {league.status === "completed" && championData?.champion && (
         <Card className="border-yellow-500/50">

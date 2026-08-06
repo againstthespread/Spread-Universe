@@ -6,8 +6,47 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CreateLeagueDialog } from "@/components/gambling-league/create-league-dialog";
 import { JoinLeagueDialog } from "@/components/gambling-league/join-league-dialog";
-import { Trophy, Users, ChevronRight, Dices, Calendar } from "lucide-react";
+import { Trophy, Users, ChevronRight, Dices, Calendar, AlertTriangle } from "lucide-react";
 import type { GamblingLeagueLeague } from "@shared/schema";
+import { useForfeitRisk } from "@/hooks/use-forfeit-risk";
+
+function LeagueCard({ league }: { league: GamblingLeagueLeague }) {
+  const forfeitRisk = useForfeitRisk(league.id, league.currentWeek, league.status === "active");
+
+  return (
+    <Link href={`/gambling-league/leagues/${league.id}`}>
+      <Card className="hover-elevate cursor-pointer h-full" data-testid={`card-my-league-${league.id}`}>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="text-lg">{league.name}</CardTitle>
+            <ChevronRight className="w-5 h-5 text-muted-foreground" />
+          </div>
+          <CardDescription className="flex items-center gap-2 flex-wrap">
+            <Badge variant={league.status === 'open' ? 'default' : league.status === 'active' ? 'secondary' : 'outline'}>
+              {league.status}
+            </Badge>
+            <span className="flex items-center gap-1">
+              <Calendar className="w-3 h-3" />
+              Week {league.currentWeek}
+            </span>
+            {forfeitRisk.atRisk && (
+              <Badge variant="destructive" className="flex items-center gap-1" data-testid={`badge-forfeit-risk-${league.id}`}>
+                <AlertTriangle className="w-3 h-3" />
+                Picks needed
+              </Badge>
+            )}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Users className="w-4 h-4" />
+            {league.capacity} members max
+          </div>
+        </CardContent>
+      </Card>
+    </Link>
+  );
+}
 
 export default function GamblingLeagueDashboard() {
   const { user } = useAuth();
@@ -66,31 +105,7 @@ export default function GamblingLeagueDashboard() {
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {myLeagues.map((league) => (
-                <Link key={league.id} href={`/gambling-league/leagues/${league.id}`}>
-                  <Card className="hover-elevate cursor-pointer h-full" data-testid={`card-my-league-${league.id}`}>
-                    <CardHeader>
-                      <div className="flex items-center justify-between gap-2">
-                        <CardTitle className="text-lg">{league.name}</CardTitle>
-                        <ChevronRight className="w-5 h-5 text-muted-foreground" />
-                      </div>
-                      <CardDescription className="flex items-center gap-2 flex-wrap">
-                        <Badge variant={league.status === 'open' ? 'default' : league.status === 'active' ? 'secondary' : 'outline'}>
-                          {league.status}
-                        </Badge>
-                        <span className="flex items-center gap-1">
-                          <Calendar className="w-3 h-3" />
-                          Week {league.currentWeek}
-                        </span>
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Users className="w-4 h-4" />
-                        {league.capacity} members max
-                      </div>
-                    </CardContent>
-                  </Card>
-                </Link>
+                <LeagueCard key={league.id} league={league} />
               ))}
             </div>
           )}
