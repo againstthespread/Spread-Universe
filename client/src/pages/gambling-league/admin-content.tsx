@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiFetch, apiRequest } from "@/lib/queryClient";
 import { Plus, Trash2, Check, Trophy, Loader2 } from "lucide-react";
 import { formatInEastern } from "@/lib/timezone";
 import type { GamblingLeagueGame, GamblingLeagueLeague } from "@shared/schema";
@@ -33,7 +33,7 @@ export default function GamblingLeagueAdminContent() {
   const { data: games = [], isLoading } = useQuery<GamblingLeagueGame[]>({
     queryKey: ["/api/gambling-league/admin/weeks", selectedWeek, "games"],
     queryFn: async () => {
-      const res = await fetch(`/api/gambling-league/admin/weeks/${selectedWeek}/games`, { credentials: "include" });
+      const res = await apiFetch(`/api/gambling-league/admin/weeks/${selectedWeek}/games`);
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
@@ -85,7 +85,7 @@ export default function GamblingLeagueAdminContent() {
   const { data: weekSettings } = useQuery<{ week: number; minPicks: number; gameCount: number }>({
     queryKey: ["/api/gambling-league/weeks", selectedWeek, "settings"],
     queryFn: async () => {
-      const res = await fetch(`/api/gambling-league/weeks/${selectedWeek}/settings`, { credentials: "include" });
+      const res = await apiFetch(`/api/gambling-league/weeks/${selectedWeek}/settings`);
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
@@ -108,7 +108,7 @@ export default function GamblingLeagueAdminContent() {
   const { data: adminLeagues = [] } = useQuery<GamblingLeagueLeague[]>({
     queryKey: ["/api/gambling-league/admin/leagues"],
     queryFn: async () => {
-      const res = await fetch("/api/gambling-league/admin/leagues", { credentials: "include" });
+      const res = await apiFetch("/api/gambling-league/admin/leagues");
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },

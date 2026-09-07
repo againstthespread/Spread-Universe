@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { GamblingLeagueGameWithPick } from "@shared/schema";
 import { isPickLocked } from "@shared/pick-lock";
+import { apiFetch } from "@/lib/queryClient";
 
 export interface ForfeitRisk {
   /** True while data is still loading — don't show anything yet. */
@@ -39,7 +40,7 @@ export function useForfeitRisk(
   const { data: games, isLoading: gamesLoading } = useQuery<GamblingLeagueGameWithPick[]>({
     queryKey: ["/api/gambling-league/weeks", currentWeek, "games", leagueId],
     queryFn: async () => {
-      const res = await fetch(`/api/gambling-league/weeks/${currentWeek}/games/${leagueId}`, { credentials: "include" });
+      const res = await apiFetch(`/api/gambling-league/weeks/${currentWeek}/games/${leagueId}`);
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
@@ -49,7 +50,7 @@ export function useForfeitRisk(
   const { data: weekSettings, isLoading: settingsLoading } = useQuery<{ week: number; minPicks: number; gameCount: number }>({
     queryKey: ["/api/gambling-league/weeks", currentWeek, "settings"],
     queryFn: async () => {
-      const res = await fetch(`/api/gambling-league/weeks/${currentWeek}/settings`, { credentials: "include" });
+      const res = await apiFetch(`/api/gambling-league/weeks/${currentWeek}/settings`);
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },

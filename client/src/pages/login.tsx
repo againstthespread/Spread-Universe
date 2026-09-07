@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { flushSync } from "react-dom";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -13,7 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
 import { loginSchema } from "@shared/schema";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, SESSION_EXPIRED_STORAGE_KEY } from "@/lib/queryClient";
 
 export default function Login() {
   const [, setLocation] = useLocation();
@@ -30,15 +29,22 @@ export default function Login() {
     },
   });
 
+  useEffect(() => {
+    if (sessionStorage.getItem(SESSION_EXPIRED_STORAGE_KEY)) {
+      sessionStorage.removeItem(SESSION_EXPIRED_STORAGE_KEY);
+      toast({
+        title: "Session expired",
+        description: "Please sign in again to continue.",
+        variant: "destructive",
+      });
+    }
+  }, [toast]);
+
   async function onSubmit(values: z.infer<typeof loginSchema>) {
     setIsLoading(true);
     try {
-      const res = await apiRequest("POST", "/api/auth/login", values);
-      const data = await res.json();
-      // Use flushSync to ensure state update is committed before navigation
-      flushSync(() => {
-        login(data.user);
-      });
+      await apiRequest("POST", "/api/auth/login", values);
+      await login();
       toast({
         title: "Welcome back!",
         description: "You've successfully signed in.",

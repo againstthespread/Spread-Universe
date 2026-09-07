@@ -35,10 +35,11 @@ import {
 import { isPickLocked } from "@shared/pick-lock";
 import { z } from "zod";
 import session from "express-session";
-import MemoryStore from "memorystore";
+import connectPgSimple from "connect-pg-simple";
 import { createHash, randomInt } from "crypto";
 import { fetchTournamentField, fetchTournamentScores } from "./sportsdata";
 import { fetchCfbGamesByWeek } from "./espn-cfb";
+import { pool } from "./db";
 
 declare module "express-session" {
   interface SessionData {
@@ -52,6 +53,27 @@ function generateResetCode(): string {
 
 function hashPassword(password: string): string {
   return createHash("sha256").update(password).digest("hex");
+}
+
+function establishUserSession(req: Request, userId: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    req.session.regenerate((regenerateError) => {
+      if (regenerateError) {
+        reject(regenerateError);
+        return;
+      }
+
+      req.session.userId = userId;
+      req.session.save((saveError) => {
+        if (saveError) {
+          reject(saveError);
+          return;
+        }
+
+        resolve();
+      });
+    });
+  });
 }
 
 function requireAuth(req: Request, res: Response, next: NextFunction) {
@@ -76,19 +98,23 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  const MemoryStoreSession = MemoryStore(session);
+  const PostgresSessionStore = connectPgSimple(session);
 
   app.use(
     session({
       secret: process.env.SESSION_SECRET || "against-the-spread-secret-key",
       resave: false,
       saveUninitialized: false,
-      store: new MemoryStoreSession({
-        checkPeriod: 86400000,
+      rolling: true,
+      store: new PostgresSessionStore({
+        pool,
+        tableName: "user_sessions",
+        createTableIfMissing: true,
       }),
       cookie: {
         secure: false,
         httpOnly: true,
+        sameSite: "lax",
         maxAge: 7 * 24 * 60 * 60 * 1000,
       },
     })
@@ -115,7 +141,7 @@ export async function registerRoutes(
         password: hashedPassword,
       });
 
-      req.session.userId = user.id;
+      await establishUserSession(req, user.id);
 
       const { password: _, ...safeUser } = user;
       res.json({ user: safeUser });
@@ -144,7 +170,7 @@ export async function registerRoutes(
         return res.status(401).json({ message: "Invalid email or password" });
       }
 
-      req.session.userId = user.id;
+      await establishUserSession(req, user.id);
 
       const { password: _, ...safeUser } = user;
       res.json({ user: safeUser });

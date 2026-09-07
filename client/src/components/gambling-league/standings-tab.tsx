@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Trophy, TrendingUp, Target } from "lucide-react";
 import type { GamblingLeagueStandingEntry } from "@shared/schema";
+import { apiFetch } from "@/lib/queryClient";
 
 interface StandingsTabProps {
   leagueId: string;
@@ -12,7 +13,7 @@ export function StandingsTab({ leagueId }: StandingsTabProps) {
   const { data: standings = [], isLoading } = useQuery<GamblingLeagueStandingEntry[]>({
     queryKey: ["/api/gambling-league/leagues", leagueId, "standings"],
     queryFn: async () => {
-      const res = await fetch(`/api/gambling-league/leagues/${leagueId}/standings`, { credentials: "include" });
+      const res = await apiFetch(`/api/gambling-league/leagues/${leagueId}/standings`);
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },

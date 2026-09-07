@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { useAuth } from "@/lib/auth-context";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiFetch, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -82,7 +82,7 @@ export default function CfbLeagueDetail({ params }: { params: { id: string } }) 
   const { data: league, isLoading: leagueLoading } = useQuery<CfbLeagueDetail>({
     queryKey: ["/api/cfb/leagues", params.id],
     queryFn: async () => {
-      const res = await fetch(`/api/cfb/leagues/${params.id}`, { credentials: "include" });
+      const res = await apiFetch(`/api/cfb/leagues/${params.id}`);
       if (!res.ok) throw new Error("Not found");
       return res.json();
     },
@@ -95,7 +95,7 @@ export default function CfbLeagueDetail({ params }: { params: { id: string } }) 
   const { data: roster = [] } = useQuery<CfbRosterEntry[]>({
     queryKey: ["/api/cfb/leagues", params.id, "roster"],
     queryFn: async () => {
-      const res = await fetch(`/api/cfb/leagues/${params.id}/roster`, { credentials: "include" });
+      const res = await apiFetch(`/api/cfb/leagues/${params.id}/roster`);
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
@@ -105,7 +105,7 @@ export default function CfbLeagueDetail({ params }: { params: { id: string } }) 
   const { data: lineup = [] } = useQuery<CfbLineupRow[]>({
     queryKey: ["/api/cfb/leagues", params.id, "lineup", league?.currentWeek],
     queryFn: async () => {
-      const res = await fetch(`/api/cfb/leagues/${params.id}/lineup?week=${league?.currentWeek}`, { credentials: "include" });
+      const res = await apiFetch(`/api/cfb/leagues/${params.id}/lineup?week=${league?.currentWeek}`);
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
@@ -115,7 +115,7 @@ export default function CfbLeagueDetail({ params }: { params: { id: string } }) 
   const { data: matchups = [] } = useQuery<CfbMatchupWithDetails[]>({
     queryKey: ["/api/cfb/leagues", params.id, "matchups", week],
     queryFn: async () => {
-      const res = await fetch(`/api/cfb/leagues/${params.id}/matchups?week=${week}`, { credentials: "include" });
+      const res = await apiFetch(`/api/cfb/leagues/${params.id}/matchups?week=${week}`);
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
@@ -125,7 +125,7 @@ export default function CfbLeagueDetail({ params }: { params: { id: string } }) 
   const { data: standings = [] } = useQuery<CfbStandingEntry[]>({
     queryKey: ["/api/cfb/leagues", params.id, "standings"],
     queryFn: async () => {
-      const res = await fetch(`/api/cfb/leagues/${params.id}/standings`, { credentials: "include" });
+      const res = await apiFetch(`/api/cfb/leagues/${params.id}/standings`);
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
@@ -135,7 +135,7 @@ export default function CfbLeagueDetail({ params }: { params: { id: string } }) 
   const { data: freeAgents = [] } = useQuery<CfbTeam[]>({
     queryKey: ["/api/cfb/leagues", params.id, "free-agents"],
     queryFn: async () => {
-      const res = await fetch(`/api/cfb/leagues/${params.id}/free-agents`, { credentials: "include" });
+      const res = await apiFetch(`/api/cfb/leagues/${params.id}/free-agents`);
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
@@ -145,7 +145,7 @@ export default function CfbLeagueDetail({ params }: { params: { id: string } }) 
   const { data: trades = [] } = useQuery<CfbTradeWithDetails[]>({
     queryKey: ["/api/cfb/leagues", params.id, "trades"],
     queryFn: async () => {
-      const res = await fetch(`/api/cfb/leagues/${params.id}/trades`, { credentials: "include" });
+      const res = await apiFetch(`/api/cfb/leagues/${params.id}/trades`);
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
@@ -155,7 +155,7 @@ export default function CfbLeagueDetail({ params }: { params: { id: string } }) 
   const { data: partnerRoster = [] } = useQuery<CfbRosterEntry[]>({
     queryKey: ["/api/cfb/leagues", params.id, "roster", tradePartnerId],
     queryFn: async () => {
-      const res = await fetch(`/api/cfb/leagues/${params.id}/roster?userId=${tradePartnerId}`, { credentials: "include" });
+      const res = await apiFetch(`/api/cfb/leagues/${params.id}/roster?userId=${tradePartnerId}`);
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },

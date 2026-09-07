@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { flushSync } from "react-dom";
 import { Link, useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -51,12 +50,8 @@ export default function Register() {
   async function onSubmit(values: z.infer<typeof registerSchema>) {
     setIsLoading(true);
     try {
-      const res = await apiRequest("POST", "/api/auth/register", values);
-      const data = await res.json();
-      // Use flushSync to ensure state update is committed before navigation
-      flushSync(() => {
-        login(data.user);
-      });
+      await apiRequest("POST", "/api/auth/register", values);
+      await login();
       toast({
         title: "Account created!",
         description: "Welcome to Against The Spread.",

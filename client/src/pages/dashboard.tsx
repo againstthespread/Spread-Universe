@@ -9,6 +9,7 @@ import { PlatformRow } from "@/components/platform-card";
 import { platforms } from "@shared/schema";
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { apiFetch } from "@/lib/queryClient";
 
 import { formatInEastern } from "@/lib/timezone";
 type NewsItem = {
@@ -42,7 +43,7 @@ export default function Dashboard() {
   const { data: platformOrder = [] } = useQuery<string[]>({
     queryKey: ["/api/platforms/order"],
     queryFn: async () => {
-      const res = await fetch("/api/platforms/order", { credentials: "include" });
+      const res = await apiFetch("/api/platforms/order");
       if (!res.ok) return [];
       return res.json();
     },
@@ -64,7 +65,7 @@ export default function Dashboard() {
   const { data: news, isLoading: newsLoading, isError: newsError } = useQuery<NewsItem[]>({
     queryKey: ["/api/news/sports"],
     queryFn: async () => {
-      const res = await fetch("/api/news/sports", { credentials: "include" });
+      const res = await apiFetch("/api/news/sports");
       if (!res.ok) throw new Error("Failed to fetch news");
       return res.json();
     },

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiFetch, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -33,7 +33,7 @@ export function PicksTab({ leagueId, currentWeek }: PicksTabProps) {
   const { data: games = [], isLoading } = useQuery<GamblingLeagueGameWithPick[]>({
     queryKey: ["/api/gambling-league/weeks", currentWeek, "games", leagueId],
     queryFn: async () => {
-      const res = await fetch(`/api/gambling-league/weeks/${currentWeek}/games/${leagueId}`, { credentials: "include" });
+      const res = await apiFetch(`/api/gambling-league/weeks/${currentWeek}/games/${leagueId}`);
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
@@ -42,7 +42,7 @@ export function PicksTab({ leagueId, currentWeek }: PicksTabProps) {
   const { data: weekSettings } = useQuery<{ week: number; minPicks: number; gameCount: number }>({
     queryKey: ["/api/gambling-league/weeks", currentWeek, "settings"],
     queryFn: async () => {
-      const res = await fetch(`/api/gambling-league/weeks/${currentWeek}/settings`, { credentials: "include" });
+      const res = await apiFetch(`/api/gambling-league/weeks/${currentWeek}/settings`);
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },

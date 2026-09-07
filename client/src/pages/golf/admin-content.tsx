@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiFetch, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -259,7 +259,7 @@ function GolfersSection() {
   const { data: golfersRaw, isLoading } = useQuery<GolfGolfer[]>({
     queryKey: ["/api/golf/golfers"],
     queryFn: async () => {
-      const res = await fetch("/api/golf/golfers", { credentials: "include" });
+      const res = await apiFetch("/api/golf/golfers");
       if (!res.ok) throw new Error(`Failed to load golfers: ${res.status}`);
       return res.json();
     },
@@ -382,7 +382,7 @@ function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) 
   const { data: allGolfersRaw } = useQuery<GolfGolfer[]>({
     queryKey: ["/api/golf/golfers", { excludeTournamentId: tournament.id }],
     queryFn: async () => {
-      const res = await fetch(`/api/golf/golfers?excludeTournamentId=${tournament.id}`, { credentials: "include" });
+      const res = await apiFetch(`/api/golf/golfers?excludeTournamentId=${tournament.id}`);
       if (!res.ok) throw new Error(`Failed to load golfers: ${res.status}`);
       return res.json();
     },
@@ -393,7 +393,7 @@ function TournamentPanel({ tournament }: { tournament: TournamentWithGolfers }) 
   const { data: scoresRaw, isLoading: scoresLoading } = useQuery<GolfGolferScore[]>({
     queryKey: ["/api/golf/tournaments", tournament.id, "scores"],
     queryFn: async () => {
-      const res = await fetch(`/api/golf/tournaments/${tournament.id}/scores`, { credentials: "include" });
+      const res = await apiFetch(`/api/golf/tournaments/${tournament.id}/scores`);
       if (!res.ok) throw new Error(`Failed to load scores: ${res.status}`);
       return res.json();
     },
@@ -781,7 +781,7 @@ export default function GolfAdminContent() {
   const { data: tournamentsRaw, isLoading, refetch } = useQuery<TournamentWithGolfers[]>({
     queryKey: ["/api/golf/tournaments"],
     queryFn: async () => {
-      const res = await fetch("/api/golf/tournaments", { credentials: "include" });
+      const res = await apiFetch("/api/golf/tournaments");
       if (!res.ok) throw new Error(`Failed to load tournaments: ${res.status}`);
       return res.json();
     },

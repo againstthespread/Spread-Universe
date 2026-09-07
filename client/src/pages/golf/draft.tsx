@@ -1,7 +1,7 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { useAuth } from "@/lib/auth-context";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiFetch, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,7 +16,7 @@ export default function GolfDraftRoom({ params }: { params: { id: string } }) {
   const { data: state, isLoading } = useQuery<GolfDraftState>({
     queryKey: ["/api/golf/leagues", params.id, "draft"],
     queryFn: async () => {
-      const res = await fetch(`/api/golf/leagues/${params.id}/draft`, { credentials: "include" });
+      const res = await apiFetch(`/api/golf/leagues/${params.id}/draft`);
       if (!res.ok) throw new Error("Failed to load draft");
       return res.json();
     },

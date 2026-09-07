@@ -8,6 +8,7 @@ import { MatchupDetailDialog } from "@/components/gambling-league/matchup-detail
 import { ArrowLeft, ArrowRight, Swords } from "lucide-react";
 import type { GamblingLeagueMatchupWithUsers } from "@shared/schema";
 import { getPlayoffConfig, roundForWeek } from "@shared/playoff-config";
+import { apiFetch } from "@/lib/queryClient";
 
 interface ScheduleTabProps {
   leagueId: string;
@@ -31,7 +32,7 @@ export function ScheduleTab({ leagueId, currentWeek, capacity }: ScheduleTabProp
   const { data: matchups = [], isLoading } = useQuery<GamblingLeagueMatchupWithUsers[]>({
     queryKey: ["/api/gambling-league/leagues", leagueId, "matchups", displayWeek],
     queryFn: async () => {
-      const res = await fetch(`/api/gambling-league/leagues/${leagueId}/matchups?week=${displayWeek}`, { credentials: "include" });
+      const res = await apiFetch(`/api/gambling-league/leagues/${leagueId}/matchups?week=${displayWeek}`);
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },

@@ -9,6 +9,7 @@ import { RoundTabs } from "@/components/marchmadness/round-tabs";
 import { Trophy, Shield, BarChart3 } from "lucide-react";
 import type { MarchmadnessRound, MarchmadnessGameWithTeams, MarchmadnessUserStats } from "@shared/schema";
 import { useAuth } from "@/lib/auth-context";
+import { apiFetch } from "@/lib/queryClient";
 
 export default function MarchMadnessDashboard() {
   const { user } = useAuth();
@@ -26,7 +27,7 @@ export default function MarchMadnessDashboard() {
       const url = selectedRoundId 
         ? `/api/marchmadness/games?roundId=${selectedRoundId}` 
         : "/api/marchmadness/games";
-      const res = await fetch(url, { credentials: "include" });
+      const res = await apiFetch(url);
       if (!res.ok) throw new Error("Failed to fetch games");
       return res.json();
     },

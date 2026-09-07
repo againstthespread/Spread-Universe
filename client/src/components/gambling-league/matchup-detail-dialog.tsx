@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Badge } from "@/components/ui/badge";
 import { Trophy, Users, Target, EyeOff, Check, X, Minus, Clock, StickyNote } from "lucide-react";
 import type { GamblingLeagueMatchupWithUsers, GamblingLeagueGame, GamblingLeaguePick } from "@shared/schema";
+import { apiFetch } from "@/lib/queryClient";
 
 interface MatchupDetailDialogProps {
   matchup: GamblingLeagueMatchupWithUsers | null;
@@ -67,7 +68,7 @@ export function MatchupDetailDialog({ matchup, open, onOpenChange }: MatchupDeta
     // are visible pre-kickoff), so cached data must never be shared across accounts.
     queryKey: ["/api/gambling-league/matchups", matchup?.id, "picks", user?.id],
     queryFn: async () => {
-      const res = await fetch(`/api/gambling-league/matchups/${matchup!.id}/picks`, { credentials: "include" });
+      const res = await apiFetch(`/api/gambling-league/matchups/${matchup!.id}/picks`);
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },

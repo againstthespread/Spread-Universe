@@ -1,5 +1,24 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+export const AUTH_UNAUTHORIZED_EVENT = "auth:unauthorized";
+export const SESSION_EXPIRED_STORAGE_KEY = "auth:session-expired";
+
+const authenticationEndpoints = new Set([
+  "/api/auth/login",
+  "/api/auth/register",
+  "/api/auth/me",
+  "/api/auth/logout",
+  "/api/auth/request-reset",
+  "/api/auth/verify-code",
+  "/api/auth/reset-password",
+]);
+
+function notifyUnauthorized(res: Response, url: string) {
+  if (res.status === 401 && !authenticationEndpoints.has(url)) {
+    window.dispatchEvent(new Event(AUTH_UNAUTHORIZED_EVENT));
+  }
+}
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
@@ -7,16 +26,21 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+export async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const res = await fetch(url, { ...options, credentials: "include" });
+  notifyUnauthorized(res, url);
+  return res;
+}
+
 export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  const res = await fetch(url, {
+  const res = await apiFetch(url, {
     method,
     headers: data ? { "Content-Type": "application/json" } : {},
     body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
   });
 
   await throwIfResNotOk(res);
@@ -29,9 +53,8 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey.join("/") as string, {
-      credentials: "include",
-    });
+    const url = queryKey.join("/") as string;
+    const res = await apiFetch(url);
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;

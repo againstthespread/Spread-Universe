@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { useAuth } from "@/lib/auth-context";
+import { apiFetch } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -42,7 +43,7 @@ export default function GolfStandings({ params }: { params: { id: string } }) {
   const { data: league } = useQuery<GolfLeagueDetail>({
     queryKey: ["/api/golf/leagues", params.id],
     queryFn: async () => {
-      const res = await fetch(`/api/golf/leagues/${params.id}`, { credentials: "include" });
+      const res = await apiFetch(`/api/golf/leagues/${params.id}`);
       if (!res.ok) throw new Error("Not found");
       return res.json();
     },
@@ -52,7 +53,7 @@ export default function GolfStandings({ params }: { params: { id: string } }) {
   const { data: standingsData, isLoading } = useQuery<GolfStandingsResponse>({
     queryKey: ["/api/golf/leagues", params.id, "standings"],
     queryFn: async () => {
-      const res = await fetch(`/api/golf/leagues/${params.id}/standings`, { credentials: "include" });
+      const res = await apiFetch(`/api/golf/leagues/${params.id}/standings`);
       if (!res.ok) throw new Error("Not found");
       return res.json();
     },

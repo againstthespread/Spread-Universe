@@ -1,12 +1,18 @@
 import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
 import type { User } from "@shared/schema";
+import {
+  AUTH_UNAUTHORIZED_EVENT,
+  SESSION_EXPIRED_STORAGE_KEY,
+  apiFetch,
+  queryClient,
+} from "@/lib/queryClient";
 
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
-  login: (user: User) => void;
+  login: () => Promise<User>;
   logout: () => void;
-  checkAuth: () => Promise<void>;
+  checkAuth: () => Promise<User | null>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -14,41 +20,32 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  // Track if user was set manually via login() to prevent checkAuth() from overwriting
-  const manuallyAuthenticatedRef = useRef(false);
-  // Track request generation to ignore stale responses
   const checkAuthGenerationRef = useRef(0);
 
   const checkAuth = async () => {
-    // If user was manually authenticated, don't check server
-    if (manuallyAuthenticatedRef.current) {
-      setIsLoading(false);
-      return;
-    }
-
     const generation = ++checkAuthGenerationRef.current;
-    
+
     try {
-      const res = await fetch("/api/auth/me", { credentials: "include" });
-      
-      // Ignore stale responses or if user was manually authenticated during fetch
-      if (generation !== checkAuthGenerationRef.current || manuallyAuthenticatedRef.current) {
-        return;
-      }
-      
+      const res = await apiFetch("/api/auth/me");
+
       if (res.ok) {
         const data = await res.json();
-        setUser(data.user);
-      } else {
+        if (generation === checkAuthGenerationRef.current) {
+          setUser(data.user);
+        }
+        return data.user as User;
+      }
+
+      if (generation === checkAuthGenerationRef.current) {
         setUser(null);
       }
+      return null;
     } catch {
-      // Only set null if this is still the latest request
-      if (generation === checkAuthGenerationRef.current && !manuallyAuthenticatedRef.current) {
+      if (generation === checkAuthGenerationRef.current) {
         setUser(null);
       }
+      return null;
     } finally {
-      // Only set loading to false if this is the latest request
       if (generation === checkAuthGenerationRef.current) {
         setIsLoading(false);
       }
@@ -59,21 +56,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     checkAuth();
   }, []);
 
-  const login = (user: User) => {
-    manuallyAuthenticatedRef.current = true;
-    checkAuthGenerationRef.current++; // Invalidate any pending checkAuth
-    setUser(user);
-    setIsLoading(false);
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      checkAuthGenerationRef.current++;
+      setUser(null);
+      setIsLoading(false);
+      queryClient.clear();
+
+      if (window.location.pathname !== "/login") {
+        sessionStorage.setItem(SESSION_EXPIRED_STORAGE_KEY, "true");
+        window.location.assign("/login");
+      }
+    };
+
+    window.addEventListener(AUTH_UNAUTHORIZED_EVENT, handleUnauthorized);
+    return () => window.removeEventListener(AUTH_UNAUTHORIZED_EVENT, handleUnauthorized);
+  }, []);
+
+  const login = async () => {
+    const authenticatedUser = await checkAuth();
+    if (!authenticatedUser) {
+      throw new Error("Your sign-in could not be confirmed. Please try again.");
+    }
+    return authenticatedUser;
   };
 
   const logout = async () => {
-    manuallyAuthenticatedRef.current = false;
+    checkAuthGenerationRef.current++;
     try {
-      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+      await apiFetch("/api/auth/logout", { method: "POST" });
     } catch {
       // ignore
     }
     setUser(null);
+    queryClient.clear();
   };
 
   return (

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiFetch, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +25,7 @@ export default function CfbAdminContent() {
   const { data: leagues = [], isLoading: leaguesLoading } = useQuery<CfbLeague[]>({
     queryKey: ["/api/cfb/admin/leagues"],
     queryFn: async () => {
-      const res = await fetch("/api/cfb/admin/leagues", { credentials: "include" });
+      const res = await apiFetch("/api/cfb/admin/leagues");
       if (!res.ok) throw new Error("Failed to load leagues");
       return res.json();
     },
@@ -34,7 +34,7 @@ export default function CfbAdminContent() {
   const { data: games = [], isLoading: gamesLoading } = useQuery<CfbGame[]>({
     queryKey: ["/api/cfb/games", gamesWeek],
     queryFn: async () => {
-      const res = await fetch(`/api/cfb/games?week=${gamesWeek}`, { credentials: "include" });
+      const res = await apiFetch(`/api/cfb/games?week=${gamesWeek}`);
       if (!res.ok) throw new Error("Failed to load games");
       return res.json();
     },

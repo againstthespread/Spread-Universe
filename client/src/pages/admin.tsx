@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiFetch, apiRequest } from "@/lib/queryClient";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -29,7 +29,7 @@ function UserManagementContent() {
   const { data: allUsers = [], isLoading: usersLoading } = useQuery<{ id: string; username: string; email: string }[]>({
     queryKey: ["/api/admin/users"],
     queryFn: async () => {
-      const res = await fetch("/api/admin/users", { credentials: "include" });
+      const res = await apiFetch("/api/admin/users");
       if (!res.ok) throw new Error("Failed to load users");
       return res.json();
     },
@@ -149,7 +149,7 @@ function PlatformOrderContent() {
   const { data: savedOrder = [], isLoading } = useQuery<string[]>({
     queryKey: ["/api/platforms/order"],
     queryFn: async () => {
-      const res = await fetch("/api/platforms/order", { credentials: "include" });
+      const res = await apiFetch("/api/platforms/order");
       if (!res.ok) return [];
       return res.json();
     },

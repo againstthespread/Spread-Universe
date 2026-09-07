@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { GitBranch, Crown, Info } from "lucide-react";
 import type { GamblingLeagueMatchupWithUsers } from "@shared/schema";
 import { getPlayoffConfig, participantsInRound, type PlayoffConfig } from "@shared/playoff-config";
+import { apiFetch } from "@/lib/queryClient";
 
 interface PlayoffsTabProps {
   leagueId: string;
@@ -76,7 +77,7 @@ export function PlayoffsTab({ leagueId, capacity, seasonStarted, onMatchupClick 
   const { data: allMatchups = [] } = useQuery<GamblingLeagueMatchupWithUsers[]>({
     queryKey: ["/api/gambling-league/leagues", leagueId, "matchups", "all"],
     queryFn: async () => {
-      const res = await fetch(`/api/gambling-league/leagues/${leagueId}/matchups`, { credentials: "include" });
+      const res = await apiFetch(`/api/gambling-league/leagues/${leagueId}/matchups`);
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
@@ -87,7 +88,7 @@ export function PlayoffsTab({ leagueId, capacity, seasonStarted, onMatchupClick 
   const { data: seeds = [], isLoading: seedsLoading } = useQuery<ProjectedSeed[]>({
     queryKey: ["/api/gambling-league/leagues", leagueId, "projected-seeds"],
     queryFn: async () => {
-      const res = await fetch(`/api/gambling-league/leagues/${leagueId}/projected-seeds`, { credentials: "include" });
+      const res = await apiFetch(`/api/gambling-league/leagues/${leagueId}/projected-seeds`);
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },

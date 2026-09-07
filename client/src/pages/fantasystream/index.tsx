@@ -8,6 +8,7 @@ import { PlayFilters, type PlayFilterType } from "@/components/fantasystream/pla
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { apiFetch } from "@/lib/queryClient";
 
 import { formatInEastern } from "@/lib/timezone";
 export default function FantasyStreamDashboard() {
@@ -37,7 +38,7 @@ export default function FantasyStreamDashboard() {
         params.append("type", activeFilter);
       }
       const url = `/api/fantasystream/plays${params.toString() ? `?${params.toString()}` : ''}`;
-      const response = await fetch(url, { credentials: 'include' });
+      const response = await apiFetch(url);
       if (!response.ok) {
         throw new Error('Failed to fetch plays');
       }

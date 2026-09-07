@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiFetch, apiRequest } from "@/lib/queryClient";
 import { useParams, Link } from "wouter";
 import { useAuth } from "@/lib/auth-context";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,7 +31,7 @@ export default function LeagueDetail() {
   const { data: league, isLoading } = useQuery<LeagueWithMembers>({
     queryKey: ["/api/gambling-league/leagues", id],
     queryFn: async () => {
-      const res = await fetch(`/api/gambling-league/leagues/${id}`, { credentials: "include" });
+      const res = await apiFetch(`/api/gambling-league/leagues/${id}`);
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
@@ -41,7 +41,7 @@ export default function LeagueDetail() {
   const { data: championData } = useQuery<{ champion: { id: string; username: string } | null }>({
     queryKey: ["/api/gambling-league/leagues", id, "champion"],
     queryFn: async () => {
-      const res = await fetch(`/api/gambling-league/leagues/${id}/champion`, { credentials: "include" });
+      const res = await apiFetch(`/api/gambling-league/leagues/${id}/champion`);
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
