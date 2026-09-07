@@ -19,3 +19,8 @@ Pick endpoints must verify membership, league not completed, pick week == league
 For Gambling League, the confirmed main-slate window is Sunday 1:00 PM through Tuesday 9:00 AM Eastern, inclusive; every game in that window locks together Sunday at 12:59 PM Eastern. All other games lock one minute before kickoff.
 **Why:** the shared deadline is an intentional “show me what you got” competitive rule, not an accidental approximation of kickoff.
 **How to apply:** keep this policy in one shared client/server helper and use `America/New_York` so EST/EDT transitions do not change the wall-clock rule.
+
+## Per-game mutation serialization
+Gambling League edits, result scoring, and pick writes for the same game must share one transaction-scoped game lock and re-read the current game after acquiring it.
+**Why:** separate check-then-write flows let a metadata edit race result scoring or a last-second pick, producing scoring from one spread while displaying another.
+**How to apply:** any new mutation that changes a game, its result, or its picks must participate in the same lock before validating completion/deadline state and writing.

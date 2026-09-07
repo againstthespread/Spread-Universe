@@ -434,6 +434,10 @@ export const insertGamblingLeagueGameSchema = createInsertSchema(gamblingLeagueG
   }),
 });
 
+export const updateGamblingLeagueGameSchema = insertGamblingLeagueGameSchema.omit({
+  week: true,
+});
+
 export const updateGamblingLeagueGameResultSchema = z.object({
   homeScore: z.coerce.number().int().min(0),
   awayScore: z.coerce.number().int().min(0),
@@ -464,6 +468,7 @@ export type GamblingLeagueMember = typeof gamblingLeagueMembers.$inferSelect;
 export type InsertGamblingLeagueMember = z.infer<typeof insertGamblingLeagueMemberSchema>;
 export type GamblingLeagueGame = typeof gamblingLeagueGames.$inferSelect;
 export type InsertGamblingLeagueGame = z.infer<typeof insertGamblingLeagueGameSchema>;
+export type UpdateGamblingLeagueGame = z.infer<typeof updateGamblingLeagueGameSchema>;
 export type UpdateGamblingLeagueGameResult = z.infer<typeof updateGamblingLeagueGameResultSchema>;
 export type GamblingLeaguePick = typeof gamblingLeaguePicks.$inferSelect;
 export type InsertGamblingLeaguePick = z.infer<typeof insertGamblingLeaguePickSchema>;

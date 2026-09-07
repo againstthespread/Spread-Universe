@@ -6,13 +6,14 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiFetch, apiRequest } from "@/lib/queryClient";
-import { Plus, Trash2, Check, Trophy, Loader2 } from "lucide-react";
+import { Plus, Trash2, Check, Trophy, Loader2, Pencil } from "lucide-react";
 import { formatInEastern } from "@/lib/timezone";
 import type { GamblingLeagueGame, GamblingLeagueLeague } from "@shared/schema";
+import { isPickLocked } from "@shared/pick-lock";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function GamblingLeagueAdminContent() {
@@ -29,6 +30,13 @@ export default function GamblingLeagueAdminContent() {
   const [minPicksInput, setMinPicksInput] = useState<string | null>(null);
   const [resultInputs, setResultInputs] = useState<Record<string, { homeScore: string; awayScore: string }>>({});
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [editingGame, setEditingGame] = useState<GamblingLeagueGame | null>(null);
+  const [editForm, setEditForm] = useState({
+    homeTeam: "",
+    awayTeam: "",
+    spread: "0",
+    gameTime: "",
+  });
 
   const { data: games = [], isLoading } = useQuery<GamblingLeagueGame[]>({
     queryKey: ["/api/gambling-league/admin/weeks", selectedWeek, "games"],
@@ -81,6 +89,32 @@ export default function GamblingLeagueAdminContent() {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
+
+  const editGameMutation = useMutation({
+    mutationFn: async ({ gameId, data }: { gameId: string; data: typeof editForm }) => {
+      return await apiRequest("PATCH", `/api/gambling-league/admin/games/${gameId}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        predicate: (query) => String(query.queryKey[0] ?? "").startsWith("/api/gambling-league/"),
+      });
+      toast({ title: "Game updated" });
+      setEditingGame(null);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const openEditDialog = (game: GamblingLeagueGame) => {
+    setEditingGame(game);
+    setEditForm({
+      homeTeam: game.homeTeam,
+      awayTeam: game.awayTeam,
+      spread: game.spread,
+      gameTime: formatInEastern(game.gameTime, "yyyy-MM-dd'T'HH:mm"),
+    });
+  };
 
   const { data: weekSettings } = useQuery<{ week: number; minPicks: number; gameCount: number }>({
     queryKey: ["/api/gambling-league/weeks", selectedWeek, "settings"],
@@ -378,15 +412,28 @@ export default function GamblingLeagueAdminContent() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        size="icon"
-                        variant="outline"
-                        onClick={() => deleteGameMutation.mutate(game.id)}
-                        disabled={deleteGameMutation.isPending}
-                        data-testid={`button-gl-delete-${game.id}`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          onClick={() => openEditDialog(game)}
+                          disabled={game.isComplete || isPickLocked(game.gameTime)}
+                          title={game.isComplete ? "Completed games cannot be edited" : isPickLocked(game.gameTime) ? "The pick deadline has passed" : "Edit game"}
+                          aria-label={`Edit ${game.awayTeam} at ${game.homeTeam}`}
+                          data-testid={`button-gl-edit-${game.id}`}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          onClick={() => deleteGameMutation.mutate(game.id)}
+                          disabled={deleteGameMutation.isPending}
+                          data-testid={`button-gl-delete-${game.id}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -469,6 +516,78 @@ export default function GamblingLeagueAdminContent() {
           )}
         </TabsContent>
       </Tabs>
+
+      <Dialog open={editingGame !== null} onOpenChange={(open) => !open && setEditingGame(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Game</DialogTitle>
+            <DialogDescription>
+              Correct the teams, spread, or Eastern kickoff before the pick deadline.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (editingGame) editGameMutation.mutate({ gameId: editingGame.id, data: editForm });
+            }}
+            className="space-y-4"
+          >
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-awayTeam">Away Team</Label>
+                <Input
+                  id="edit-awayTeam"
+                  value={editForm.awayTeam}
+                  onChange={(e) => setEditForm({ ...editForm, awayTeam: e.target.value })}
+                  data-testid="input-gl-edit-away-team"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-homeTeam">Home Team</Label>
+                <Input
+                  id="edit-homeTeam"
+                  value={editForm.homeTeam}
+                  onChange={(e) => setEditForm({ ...editForm, homeTeam: e.target.value })}
+                  data-testid="input-gl-edit-home-team"
+                  required
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-spread">Spread (Home Team)</Label>
+                <Input
+                  id="edit-spread"
+                  type="number"
+                  step="0.5"
+                  value={editForm.spread}
+                  onChange={(e) => setEditForm({ ...editForm, spread: e.target.value })}
+                  data-testid="input-gl-edit-spread"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-gameTime">Game Start Time (Eastern Time)</Label>
+                <Input
+                  id="edit-gameTime"
+                  type="datetime-local"
+                  value={editForm.gameTime}
+                  onChange={(e) => setEditForm({ ...editForm, gameTime: e.target.value })}
+                  data-testid="input-gl-edit-game-time"
+                  required
+                />
+                <p className="text-xs text-muted-foreground">
+                  Enter the published kickoff time in ET. It will be stored with the correct EST/EDT offset.
+                </p>
+              </div>
+            </div>
+            <Button type="submit" className="w-full" disabled={editGameMutation.isPending} data-testid="button-gl-save-game">
+              {editGameMutation.isPending ? "Saving..." : "Save Changes"}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={showResetDialog} onOpenChange={setShowResetDialog}>
         <AlertDialogContent>

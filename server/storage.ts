@@ -61,6 +61,7 @@ import {
   type GamblingLeagueMember,
   type GamblingLeagueGame,
   type InsertGamblingLeagueGame,
+  type UpdateGamblingLeagueGame,
   type UpdateGamblingLeagueGameResult,
   type GamblingLeaguePick,
   type InsertGamblingLeaguePick,
@@ -112,6 +113,7 @@ import {
 } from "@shared/schema";
 import { CFB_TEAM_SEED } from "./cfb-team-data";
 import { getPlayoffConfig, participantsInRound, roundForWeek, CHAMPIONSHIP_WEEK, type PlayoffConfig } from "@shared/playoff-config";
+import { isPickLocked } from "@shared/pick-lock";
 import type { EspnCfbGame } from "./espn-cfb";
 import { db } from "./db";
 import { eq, and, gt, gte, sql, desc, asc, inArray, not } from "drizzle-orm";
@@ -210,6 +212,7 @@ export interface IStorage {
   gl_getGame(id: string): Promise<GamblingLeagueGame | undefined>;
   gl_getGamesByWeek(week: number): Promise<GamblingLeagueGame[]>;
   gl_createGame(game: InsertGamblingLeagueGame): Promise<GamblingLeagueGame>;
+  gl_updateGame(id: string, data: UpdateGamblingLeagueGame): Promise<GamblingLeagueGame | undefined>;
   gl_updateGameResult(id: string, data: UpdateGamblingLeagueGameResult): Promise<GamblingLeagueGame | undefined>;
   gl_getGamesWithPicks(week: number, userId: string, leagueId: string): Promise<GamblingLeagueGameWithPick[]>;
   gl_deleteGame(id: string): Promise<void>;
@@ -1000,6 +1003,42 @@ export class DatabaseStorage implements IStorage {
     return newGame;
   }
 
+  /** Serializes edits, result scoring, and pick writes for one game. */
+  private async gl_lockGameMutation(tx: { execute: (q: ReturnType<typeof sql>) => Promise<unknown> }, gameId: string): Promise<void> {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('gl_game_mutation'), hashtext(${gameId}))`);
+  }
+
+  private gl_assertGameAcceptsPicks(game: GamblingLeagueGame): void {
+    if (game.isComplete) {
+      throw new Error("Picks are locked for games that already have results");
+    }
+    if (isPickLocked(game.gameTime)) {
+      throw new Error("Picks are locked for this game");
+    }
+  }
+
+  async gl_updateGame(id: string, data: UpdateGamblingLeagueGame): Promise<GamblingLeagueGame | undefined> {
+    return db.transaction(async (tx) => {
+      await this.gl_lockGameMutation(tx, id);
+      const [existingGame] = await tx.select().from(gamblingLeagueGames).where(eq(gamblingLeagueGames.id, id));
+      if (!existingGame) return undefined;
+      if (existingGame.isComplete) {
+        throw new Error("Completed games cannot be edited");
+      }
+      if (isPickLocked(existingGame.gameTime)) {
+        throw new Error("This game's pick deadline has passed");
+      }
+
+      const [game] = await tx.update(gamblingLeagueGames).set({
+        homeTeam: data.homeTeam,
+        awayTeam: data.awayTeam,
+        spread: String(data.spread),
+        gameTime: data.gameTime,
+      }).where(eq(gamblingLeagueGames.id, id)).returning();
+      return game || undefined;
+    });
+  }
+
   /**
    * Serializes concurrent mutations of a week's games/min-picks setting so
    * validation can't race (e.g. a delete lowering the game count while a
@@ -1049,22 +1088,25 @@ export class DatabaseStorage implements IStorage {
   }
 
   async gl_updateGameResult(id: string, data: UpdateGamblingLeagueGameResult): Promise<GamblingLeagueGame | undefined> {
-    const [game] = await db.update(gamblingLeagueGames).set({
-      homeScore: data.homeScore,
-      awayScore: data.awayScore,
-      isComplete: true,
-    }).where(eq(gamblingLeagueGames.id, id)).returning();
-    
-    if (game) {
-      const picks = await db.select().from(gamblingLeaguePicks).where(eq(gamblingLeaguePicks.gameId, id));
+    return db.transaction(async (tx) => {
+      await this.gl_lockGameMutation(tx, id);
+      const [game] = await tx.update(gamblingLeagueGames).set({
+        homeScore: data.homeScore,
+        awayScore: data.awayScore,
+        isComplete: true,
+      }).where(eq(gamblingLeagueGames.id, id)).returning();
+
+      if (!game) return undefined;
+
+      const picks = await tx.select().from(gamblingLeaguePicks).where(eq(gamblingLeaguePicks.gameId, id));
       const spread = parseFloat(game.spread);
       const homeMargin = data.homeScore - data.awayScore;
       const adjustedMargin = homeMargin + spread;
-      
+
       for (const pick of picks) {
         let isCorrect: boolean | null = null;
         let isPush = false;
-        
+
         if (adjustedMargin === 0) {
           isPush = true;
         } else if (pick.pickedTeam === 'home') {
@@ -1072,12 +1114,12 @@ export class DatabaseStorage implements IStorage {
         } else {
           isCorrect = adjustedMargin < 0;
         }
-        
-        await db.update(gamblingLeaguePicks).set({ isCorrect, isPush }).where(eq(gamblingLeaguePicks.id, pick.id));
+
+        await tx.update(gamblingLeaguePicks).set({ isCorrect, isPush }).where(eq(gamblingLeaguePicks.id, pick.id));
       }
-    }
-    
-    return game || undefined;
+
+      return game;
+    });
   }
 
   async gl_getGamesWithPicks(week: number, userId: string, leagueId: string): Promise<GamblingLeagueGameWithPick[]> {
@@ -1115,23 +1157,43 @@ export class DatabaseStorage implements IStorage {
   }
 
   async gl_createPick(pick: InsertGamblingLeaguePick, userId: string): Promise<GamblingLeaguePick> {
-    const [newPick] = await db.insert(gamblingLeaguePicks).values({ ...pick, userId }).returning();
-    return newPick;
+    return db.transaction(async (tx) => {
+      await this.gl_lockGameMutation(tx, pick.gameId);
+      const [game] = await tx.select().from(gamblingLeagueGames).where(eq(gamblingLeagueGames.id, pick.gameId));
+      if (!game) throw new Error("Game not found");
+      this.gl_assertGameAcceptsPicks(game);
+      const [newPick] = await tx.insert(gamblingLeaguePicks).values({ ...pick, userId }).returning();
+      return newPick;
+    });
   }
 
   async gl_updatePick(id: string, data: Partial<GamblingLeaguePick>): Promise<GamblingLeaguePick | undefined> {
-    const [pick] = await db.update(gamblingLeaguePicks).set(data).where(eq(gamblingLeaguePicks.id, id)).returning();
-    return pick || undefined;
+    return db.transaction(async (tx) => {
+      const [existingPick] = await tx.select().from(gamblingLeaguePicks).where(eq(gamblingLeaguePicks.id, id));
+      if (!existingPick) return undefined;
+      await this.gl_lockGameMutation(tx, existingPick.gameId);
+      const [game] = await tx.select().from(gamblingLeagueGames).where(eq(gamblingLeagueGames.id, existingPick.gameId));
+      if (!game) throw new Error("Game not found");
+      this.gl_assertGameAcceptsPicks(game);
+      const [pick] = await tx.update(gamblingLeaguePicks).set(data).where(eq(gamblingLeaguePicks.id, id)).returning();
+      return pick || undefined;
+    });
   }
 
   async gl_deletePick(userId: string, leagueId: string, gameId: string): Promise<void> {
-    await db.delete(gamblingLeaguePicks).where(
-      and(
-        eq(gamblingLeaguePicks.userId, userId),
-        eq(gamblingLeaguePicks.leagueId, leagueId),
-        eq(gamblingLeaguePicks.gameId, gameId)
-      )
-    );
+    await db.transaction(async (tx) => {
+      await this.gl_lockGameMutation(tx, gameId);
+      const [game] = await tx.select().from(gamblingLeagueGames).where(eq(gamblingLeagueGames.id, gameId));
+      if (!game) throw new Error("Game not found");
+      this.gl_assertGameAcceptsPicks(game);
+      await tx.delete(gamblingLeaguePicks).where(
+        and(
+          eq(gamblingLeaguePicks.userId, userId),
+          eq(gamblingLeaguePicks.leagueId, leagueId),
+          eq(gamblingLeaguePicks.gameId, gameId)
+        )
+      );
+    });
   }
 
   async gl_getMatchupById(id: string): Promise<GamblingLeagueMatchup | undefined> {

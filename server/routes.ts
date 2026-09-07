@@ -15,6 +15,7 @@ import {
   insertMarchmadnessPickSchema,
   insertGamblingLeagueSchema,
   insertGamblingLeagueGameSchema,
+  updateGamblingLeagueGameSchema,
   updateGamblingLeagueGameResultSchema,
   insertGamblingLeaguePickSchema,
   insertPostseasonGameSchema,
@@ -1458,6 +1459,12 @@ export async function registerRoutes(
       
       res.json(savedPicks);
     } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.message === "Game not found" || error.message.startsWith("Picks are locked"))
+      ) {
+        return res.status(error.message === "Game not found" ? 404 : 400).json({ message: error.message });
+      }
       console.error("GL submit picks error:", error);
       res.status(500).json({ message: "Failed to submit picks" });
     }
@@ -1522,6 +1529,37 @@ export async function registerRoutes(
     } catch (error) {
       console.error("GL admin create game error:", error);
       res.status(500).json({ message: "Failed to create game" });
+    }
+  });
+
+  app.patch("/api/gambling-league/admin/games/:id", requireAdmin, async (req, res) => {
+    try {
+      const existingGame = await storage.gl_getGame(req.params.id);
+      if (!existingGame) return res.status(404).json({ message: "Game not found" });
+      if (existingGame.isComplete) {
+        return res.status(409).json({ message: "Completed games cannot be edited" });
+      }
+      if (isPickLocked(existingGame.gameTime)) {
+        return res.status(409).json({ message: "This game's pick deadline has passed" });
+      }
+
+      const result = updateGamblingLeagueGameSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ message: result.error.errors[0].message });
+      }
+
+      const game = await storage.gl_updateGame(req.params.id, result.data);
+      if (!game) return res.status(404).json({ message: "Game not found" });
+      res.json(game);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.message === "Completed games cannot be edited" || error.message === "This game's pick deadline has passed")
+      ) {
+        return res.status(409).json({ message: error.message });
+      }
+      console.error("GL admin update game error:", error);
+      res.status(500).json({ message: "Failed to update game" });
     }
   });
 
