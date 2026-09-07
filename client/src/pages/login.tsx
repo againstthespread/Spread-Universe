@@ -19,7 +19,7 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
-  const { login } = useAuth();
+  const { user, login } = useAuth();
 
   const form = useForm<z.infer<typeof loginSchema>>({
     resolver: zodResolver(loginSchema),
@@ -40,6 +40,12 @@ export default function Login() {
     }
   }, [toast]);
 
+  useEffect(() => {
+    if (user) {
+      setLocation("/dashboard");
+    }
+  }, [user, setLocation]);
+
   async function onSubmit(values: z.infer<typeof loginSchema>) {
     setIsLoading(true);
     try {
@@ -49,7 +55,6 @@ export default function Login() {
         title: "Welcome back!",
         description: "You've successfully signed in.",
       });
-      setLocation("/dashboard");
     } catch (error: any) {
       toast({
         title: "Sign in failed",
