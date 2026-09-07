@@ -995,7 +995,6 @@ export class DatabaseStorage implements IStorage {
   async gl_createGame(game: InsertGamblingLeagueGame): Promise<GamblingLeagueGame> {
     const [newGame] = await db.insert(gamblingLeagueGames).values({
       ...game,
-      gameTime: new Date(game.gameTime),
       spread: String(game.spread),
     }).returning();
     return newGame;

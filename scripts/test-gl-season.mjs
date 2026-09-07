@@ -138,11 +138,11 @@ async function runWeek(week, withGames) {
       const r = week === 1
         ? await api(users[0], "POST", `/api/gambling-league/admin/weeks/1/games`, {
             homeTeam: `Home W${week}G${g}`, awayTeam: `Away W${week}G${g}`, spread: "-3.5",
-            gameTime: new Date(Date.now() + 86400000).toISOString(),
+            gameTime: "2030-09-08T13:00",
           })
         : await api(users[0], "POST", "/api/gambling-league/admin/games", {
             week, homeTeam: `Home W${week}G${g}`, awayTeam: `Away W${week}G${g}`, spread: "-3.5",
-            gameTime: new Date(Date.now() + 86400000).toISOString(),
+            gameTime: "2030-09-08T13:00",
           });
       assert(r.status === 200, `game w${week}: ${r.status} ${JSON.stringify(r.data)}`);
       gameIds.push(r.data.id);
@@ -158,7 +158,7 @@ async function runWeek(week, withGames) {
       // Delete re-cap: set min to the full count, delete a game, expect the min to drop with it
       const extra = await api(users[0], "POST", "/api/gambling-league/admin/weeks/1/games", {
         homeTeam: "Home W1EXTRA", awayTeam: "Away W1EXTRA", spread: "-3.5",
-        gameTime: new Date(Date.now() + 86400000).toISOString(),
+        gameTime: "2030-09-08T13:00",
       });
       assert(extra.status === 200, `extra game: ${extra.status}`);
       const full = (await api(users[0], "GET", "/api/gambling-league/weeks/1/settings")).data.gameCount;

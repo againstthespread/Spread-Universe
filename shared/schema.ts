@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, varchar, timestamp, boolean, integer, decimal, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import { parseEasternWallTime } from "./eastern-time";
 
 export const appSettings = pgTable("app_settings", {
   key: text("key").primaryKey(),
@@ -417,7 +418,20 @@ export const insertGamblingLeagueGameSchema = createInsertSchema(gamblingLeagueG
 }).extend({
   week: z.coerce.number().int().min(1).max(18),
   spread: z.coerce.number(),
-  gameTime: z.string(),
+  // The admin sends a timezone-less wall-clock value explicitly defined as
+  // America/New_York. It is converted here, on the server/shared contract,
+  // rather than being interpreted in the browser or server's local timezone.
+  gameTime: z.string().transform((value, ctx) => {
+    try {
+      return parseEasternWallTime(value);
+    } catch (error) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: error instanceof Error ? error.message : "Invalid Eastern game time",
+      });
+      return z.NEVER;
+    }
+  }),
 });
 
 export const updateGamblingLeagueGameResultSchema = z.object({

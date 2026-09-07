@@ -15,46 +15,6 @@ import { formatInEastern } from "@/lib/timezone";
 import type { GamblingLeagueGame, GamblingLeagueLeague } from "@shared/schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-function isEasternDST(utcDate: Date): boolean {
-  const year = utcDate.getUTCFullYear();
-  const month = utcDate.getUTCMonth();
-  const day = utcDate.getUTCDate();
-  const hour = utcDate.getUTCHours();
-  if (month < 2 || month > 10) return false;
-  if (month > 2 && month < 10) return true;
-  function getNthSundayOfMonth(year: number, month: number, n: number): number {
-    const firstDay = new Date(year, month, 1);
-    const firstSunday = ((7 - firstDay.getDay()) % 7) + 1;
-    return firstSunday + ((n - 1) * 7);
-  }
-  if (month === 2) {
-    const secondSunday = getNthSundayOfMonth(year, 2, 2);
-    if (day < secondSunday) return false;
-    if (day > secondSunday) return true;
-    return hour >= 7;
-  }
-  if (month === 10) {
-    const firstSunday = getNthSundayOfMonth(year, 10, 1);
-    if (day < firstSunday) return true;
-    if (day > firstSunday) return false;
-    return hour < 6;
-  }
-  return false;
-}
-
-function convertUTCToEasternForInput(utcDateOrString: Date | string): string {
-  const utcDate = typeof utcDateOrString === 'string' ? new Date(utcDateOrString) : utcDateOrString;
-  const isDST = isEasternDST(utcDate);
-  const offsetHours = isDST ? 4 : 5;
-  const easternTime = new Date(utcDate.getTime() - (offsetHours * 60 * 60 * 1000));
-  const year = easternTime.getUTCFullYear();
-  const monthStr = String(easternTime.getUTCMonth() + 1).padStart(2, '0');
-  const dayStr = String(easternTime.getUTCDate()).padStart(2, '0');
-  const hourStr = String(easternTime.getUTCHours()).padStart(2, '0');
-  const minuteStr = String(easternTime.getUTCMinutes()).padStart(2, '0');
-  return `${year}-${monthStr}-${dayStr}T${hourStr}:${minuteStr}`;
-}
-
 export default function GamblingLeagueAdminContent() {
   const { toast } = useToast();
   const [selectedWeek, setSelectedWeek] = useState<number>(1);
@@ -259,7 +219,7 @@ export default function GamblingLeagueAdminContent() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="gameTime">Game Time (ET)</Label>
+                    <Label htmlFor="gameTime">Game Start Time (Eastern Time)</Label>
                     <Input
                       id="gameTime"
                       type="datetime-local"
@@ -268,6 +228,9 @@ export default function GamblingLeagueAdminContent() {
                       data-testid="input-gl-game-time"
                       required
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Enter the published kickoff time in ET. It will be stored with the correct EST/EDT offset.
+                    </p>
                   </div>
                 </div>
                 <Button type="submit" className="w-full" disabled={addGameMutation.isPending} data-testid="button-gl-submit-game">
