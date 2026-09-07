@@ -112,9 +112,10 @@ export async function registerRoutes(
         createTableIfMissing: true,
       }),
       cookie: {
-        secure: false,
+        secure: "auto",
         httpOnly: true,
-        sameSite: "lax",
+        sameSite: "none",
+        partitioned: true,
         maxAge: 7 * 24 * 60 * 60 * 1000,
       },
     })
@@ -185,7 +186,13 @@ export async function registerRoutes(
       if (err) {
         return res.status(500).json({ message: "Failed to sign out" });
       }
-      res.clearCookie("connect.sid");
+      res.clearCookie("connect.sid", {
+        path: "/",
+        httpOnly: true,
+        secure: req.secure,
+        sameSite: "none",
+        partitioned: true,
+      });
       res.json({ message: "Signed out successfully" });
     });
   });
