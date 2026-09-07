@@ -225,10 +225,11 @@ export function PicksTab({ leagueId, currentWeek }: PicksTabProps) {
             <div className="text-sm text-muted-foreground space-y-1">
               {mainSlateLock && (
                 <p data-testid="text-main-slate-deadline">
-                  Sunday &amp; Monday games lock {formatInEastern(mainSlateLock, "EEE, MMM d, h:mm a")} ET
+                  Games from Sunday 1:00 PM through Tuesday 9:00 AM ET lock together at{" "}
+                  {formatInEastern(mainSlateLock, "EEE, MMM d, h:mm a")} ET.
                 </p>
               )}
-              <p>Thursday–Saturday games lock 1 minute before their kickoff.</p>
+              <p>All other games lock 1 minute before their kickoff.</p>
             </div>
           )}
         </CardContent>

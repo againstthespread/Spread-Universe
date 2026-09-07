@@ -65,7 +65,8 @@ async function makeGames(week, future) {
     const [home, away] = teams[((week - 1) * 3 + g) % teams.length];
     const r = await api("demou1", "POST", "/api/gambling-league/admin/games", {
       week, homeTeam: home, awayTeam: away, spread: spreads[g],
-      gameTime: new Date(Date.now() + (future ? (2 + g) * 86400000 : 86400000)).toISOString(),
+      // Gambling League admin API accepts an Eastern wall-clock value.
+      gameTime: future ? `2030-09-${String(8 + g).padStart(2, "0")}T13:00` : "2025-09-08T13:00",
     });
     assert(r.status === 200, `game w${week}g${g}: ${r.status} ${JSON.stringify(r.data)}`);
     ids.push(r.data.id);

@@ -15,3 +15,7 @@ Season-start and week-advance operations must claim league state atomically (row
 
 ## Pick submission locking
 Pick endpoints must verify membership, league not completed, pick week == league current week, and game not complete — otherwise users can edit picks after results are in and manipulate standings/seeds.
+
+For Gambling League, the confirmed main-slate window is Sunday 1:00 PM through Tuesday 9:00 AM Eastern, inclusive; every game in that window locks together Sunday at 12:59 PM Eastern. All other games lock one minute before kickoff.
+**Why:** the shared deadline is an intentional “show me what you got” competitive rule, not an accidental approximation of kickoff.
+**How to apply:** keep this policy in one shared client/server helper and use `America/New_York` so EST/EDT transitions do not change the wall-clock rule.
