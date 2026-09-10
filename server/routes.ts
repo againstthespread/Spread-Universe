@@ -34,6 +34,7 @@ import {
   type FantasyStreamPlay,
 } from "@shared/schema";
 import { isPickLocked } from "@shared/pick-lock";
+import { buildMatchupPicksResponse } from "./gl-matchup-picks";
 import { z } from "zod";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
@@ -1298,44 +1299,14 @@ export async function registerRoutes(
           : Promise.resolve([]),
       ]);
 
-      // Hide other users' picks until the week's first game kicks off
-      // (or until games start being graded / the matchup is finalized)
-      const now = Date.now();
-      const firstKickoff = games.length > 0 ? Math.min(...games.map(g => new Date(g.gameTime).getTime())) : null;
-      const picksRevealed =
-        matchup.isComplete ||
-        games.some(g => g.isComplete) ||
-        (firstKickoff !== null && now >= firstKickoff);
-
-      const pickFor = (picks: typeof user1Picks, userId: string, gameId: string) => {
-        if (!picksRevealed && userId !== requesterId) return null;
-        return picks.find(p => p.gameId === gameId) ?? null;
-      };
-
-      // Only include games at least one matchup player picked. Before reveal,
-      // only the requester's own picked games are listed (opponent-only picks
-      // would leak which games the opponent chose); counts convey the rest.
-      const visiblePickedGameIds = new Set<string>();
-      for (const p of user1Picks) {
-        if (picksRevealed || matchup.user1Id === requesterId) visiblePickedGameIds.add(p.gameId);
-      }
-      for (const p of user2Picks) {
-        if (picksRevealed || matchup.user2Id === requesterId) visiblePickedGameIds.add(p.gameId);
-      }
-
-      res.json({
-        picksRevealed,
-        user1PickCount: user1Picks.length,
-        user2PickCount: matchup.user2Id ? user2Picks.length : null,
-        games: games
-          .filter(game => visiblePickedGameIds.has(game.id))
-          .sort((a, b) => new Date(a.gameTime).getTime() - new Date(b.gameTime).getTime())
-          .map(game => ({
-            ...game,
-            user1Pick: pickFor(user1Picks, matchup.user1Id, game.id),
-            user2Pick: matchup.user2Id ? pickFor(user2Picks, matchup.user2Id, game.id) : null,
-          })),
-      });
+      res.json(buildMatchupPicksResponse({
+        games,
+        user1Picks,
+        user2Picks,
+        user1Id: matchup.user1Id,
+        user2Id: matchup.user2Id,
+        requesterId,
+      }));
     } catch (error) {
       console.error("GL get matchup picks error:", error);
       res.status(500).json({ message: "Failed to get matchup picks" });

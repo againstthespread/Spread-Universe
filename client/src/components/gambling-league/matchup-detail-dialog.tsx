@@ -17,6 +17,7 @@ type MatchupPicksResponse = {
   user1PickCount: number;
   user2PickCount: number | null;
   games: (GamblingLeagueGame & {
+    picksLocked: boolean;
     user1Pick: GamblingLeaguePick | null;
     user2Pick: GamblingLeaguePick | null;
   })[];
@@ -79,19 +80,6 @@ export function MatchupDetailDialog({ matchup, open, onOpenChange }: MatchupDeta
   });
 
   if (!matchup) return null;
-
-  // Pre-reveal, hidden players' picked games aren't listed; summarize with counts.
-  const hiddenOpponentNote = (() => {
-    if (!pickData || pickData.picksRevealed) return null;
-    const parts: string[] = [];
-    if (user?.id !== matchup.user1.id && pickData.user1PickCount > 0) {
-      parts.push(`${matchup.user1.username} picked ${pickData.user1PickCount} game${pickData.user1PickCount === 1 ? "" : "s"}`);
-    }
-    if (matchup.user2 && user?.id !== matchup.user2.id && pickData.user2PickCount !== null && pickData.user2PickCount > 0) {
-      parts.push(`${matchup.user2.username} picked ${pickData.user2PickCount} game${pickData.user2PickCount === 1 ? "" : "s"}`);
-    }
-    return parts.length > 0 ? parts.join(", ") : null;
-  })();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -158,7 +146,11 @@ export function MatchupDetailDialog({ matchup, open, onOpenChange }: MatchupDeta
             <h4 className="text-sm font-semibold mb-3">Game Picks</h4>
             {picksLoading ? (
               <p className="text-sm text-muted-foreground text-center py-4">Loading picks...</p>
-            ) : !pickData || (pickData.user1PickCount === 0 && (pickData.user2PickCount ?? 0) === 0) ? (
+            ) : !pickData || (
+              pickData.picksRevealed &&
+              pickData.user1PickCount === 0 &&
+              (pickData.user2PickCount ?? 0) === 0
+            ) ? (
               <p className="text-sm text-muted-foreground text-center py-4" data-testid="text-no-games">
                 No picks made this week yet.
               </p>
@@ -167,9 +159,12 @@ export function MatchupDetailDialog({ matchup, open, onOpenChange }: MatchupDeta
                 {!pickData.picksRevealed && (
                   <p className="text-xs text-muted-foreground flex items-center gap-1 mb-2" data-testid="text-picks-hidden">
                     <EyeOff className="w-3 h-3" />
-                    {hiddenOpponentNote
-                      ? `${hiddenOpponentNote} — hidden until the week's first game kicks off.`
-                      : "Other players' picks are hidden until the week's first game kicks off."}
+                    Other players' unlocked picks stay hidden until each selected game locks.
+                  </p>
+                )}
+                {pickData.games.length === 0 && !pickData.picksRevealed && (
+                  <p className="text-sm text-muted-foreground text-center py-4" data-testid="text-no-locked-picks">
+                    No locked picks to show yet.
                   </p>
                 )}
                 {pickData.games.map((game) => (
@@ -187,13 +182,13 @@ export function MatchupDetailDialog({ matchup, open, onOpenChange }: MatchupDeta
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5">{matchup.user1.username}</div>
-                        <PickCell pick={game.user1Pick} game={game} revealed={pickData.picksRevealed || user?.id === matchup.user1.id} />
+                        <PickCell pick={game.user1Pick} game={game} revealed={game.picksLocked || user?.id === matchup.user1.id} />
                       </div>
                       <div>
                         {matchup.user2 ? (
                           <>
                             <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5">{matchup.user2.username}</div>
-                            <PickCell pick={game.user2Pick} game={game} revealed={pickData.picksRevealed || user?.id === matchup.user2.id} />
+                            <PickCell pick={game.user2Pick} game={game} revealed={game.picksLocked || user?.id === matchup.user2.id} />
                           </>
                         ) : (
                           <div className="text-xs text-muted-foreground italic mt-3">BYE</div>

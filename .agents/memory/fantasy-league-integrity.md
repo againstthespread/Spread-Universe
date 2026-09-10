@@ -24,3 +24,8 @@ For Gambling League, the confirmed main-slate window is Sunday 1:00 PM through T
 Gambling League edits, result scoring, and pick writes for the same game must share one transaction-scoped game lock and re-read the current game after acquiring it.
 **Why:** separate check-then-write flows let a metadata edit race result scoring or a last-second pick, producing scoring from one spread while displaying another.
 **How to apply:** any new mutation that changes a game, its result, or its picks must participate in the same lock before validating completion/deadline state and writing.
+
+## Opponent pick visibility
+Reveal another Gambling League user's pick only after that specific game's shared lock deadline. Hide the selected game's identity and any exact aggregate count that could identify an unlocked selection; owners may always see their own picks.
+**Why:** a week-wide reveal or count side channel lets opponents copy or counter still-editable picks.
+**How to apply:** filter protected pick data on the server with the shared lock helper, and base public reveal metadata on scheduled lock state rather than whether hidden picks exist.
